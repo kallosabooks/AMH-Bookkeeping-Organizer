@@ -1,0 +1,1282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Client Onboarding Tracker</title>
+<style>
+  :root {
+    --bg: #f4f6f9;
+    --surface: #ffffff;
+    --column: #e9edf2;
+    --column-drop: #dde7fb;
+    --border: #d6dde6;
+    --border-strong: #b6c1ce;
+    --text: #1f2933;
+    --muted: #5f6b7a;
+    --accent: #2458d6;
+    --accent-hover: #1c47b0;
+    --accent-soft: #e8effd;
+    --danger: #b42318;
+    --danger-soft: #fdecea;
+    --focus: rgba(36, 88, 214, 0.35);
+    --radius: 10px;
+    --shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
+    --shadow-lg: 0 20px 45px rgba(16, 24, 40, 0.22);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.4;
+    color: var(--text);
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+  }
+  button, input, select, textarea { font: inherit; color: inherit; }
+
+  /* ---------- Top bar ---------- */
+  .topbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 16px;
+    padding: 12px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .brand h1 { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: -0.01em; }
+  .brand .status { font-size: 12px; color: var(--muted); min-height: 16px; }
+  .status.warn { color: var(--danger); font-weight: 600; }
+  .search { position: relative; flex: 1 1 240px; max-width: 420px; }
+  .search input {
+    width: 100%;
+    padding: 9px 34px 9px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+  }
+  .search input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus); background: var(--surface); }
+  .search .clear {
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+    border: 0; background: none; font-size: 18px; line-height: 1; padding: 4px 6px;
+    color: var(--muted); cursor: pointer; display: none;
+  }
+  .search.has-text .clear { display: block; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    cursor: pointer;
+    font-weight: 550;
+    white-space: nowrap;
+  }
+  .btn:hover { border-color: var(--border-strong); background: #f8fafc; }
+  .btn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+  .btn.danger { color: var(--danger); border-color: #f1c4bf; }
+  .btn.danger:hover { background: var(--danger-soft); }
+  .btn.small { padding: 5px 10px; font-size: 13px; }
+  .btn.icon { padding: 5px 9px; }
+  .btn:disabled { opacity: 0.45; cursor: default; }
+
+  /* ---------- Board ---------- */
+  .board {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    gap: 14px;
+    padding: 16px 20px 20px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    align-items: stretch;
+  }
+  .column {
+    flex: 0 0 272px;
+    display: flex;
+    flex-direction: column;
+    max-height: 100%;
+    background: var(--column);
+    border: 2px solid transparent;
+    border-radius: var(--radius);
+    transition: background 0.12s, border-color 0.12s;
+  }
+  .column.drop-target { background: var(--column-drop); border-color: var(--accent); }
+  .column-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 12px 14px 8px;
+  }
+  .column-head h2 { margin: 0; font-size: 14px; font-weight: 650; }
+  .count {
+    flex: none;
+    min-width: 26px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    font-size: 12px;
+    font-weight: 650;
+    color: var(--muted);
+    text-align: center;
+  }
+  .card-list {
+    flex: 1;
+    min-height: 70px;
+    overflow-y: auto;
+    padding: 4px 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .empty-col {
+    border: 1.5px dashed var(--border-strong);
+    border-radius: 8px;
+    padding: 16px 10px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    box-shadow: var(--shadow);
+    cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+  }
+  .card:hover { border-color: var(--border-strong); }
+  .card:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); }
+  .card.dragging { opacity: 0.35; }
+  .card.hidden { display: none; }
+  .card-name { font-weight: 650; word-break: break-word; }
+  .card-biz { color: var(--muted); font-size: 13.5px; margin-top: 1px; word-break: break-word; }
+  .card-meta {
+    display: flex; justify-content: space-between; align-items: center; gap: 6px;
+    margin-top: 8px; font-size: 12px; color: var(--muted);
+  }
+  .pill {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 999px; padding: 0 7px; white-space: nowrap;
+  }
+  .ghost {
+    position: fixed;
+    top: 0; left: 0;
+    z-index: 1000;
+    pointer-events: none;
+    box-shadow: var(--shadow-lg);
+    cursor: grabbing;
+  }
+  body.is-dragging, body.is-dragging * { cursor: grabbing !important; }
+
+  mark { background: #fff1a8; color: inherit; border-radius: 2px; padding: 0 1px; }
+
+  /* ---------- Modal ---------- */
+  .overlay {
+    position: fixed; inset: 0; z-index: 500;
+    background: rgba(15, 23, 42, 0.45);
+    display: flex; align-items: center; justify-content: center;
+    padding: 16px;
+  }
+  .modal {
+    width: 100%;
+    max-width: 640px;
+    max-height: calc(100vh - 32px);
+    display: flex; flex-direction: column;
+    background: var(--surface);
+    border-radius: 12px;
+    box-shadow: var(--shadow-lg);
+  }
+  .modal-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .modal-head h2 { margin: 0; font-size: 17px; }
+  .modal-close { border: 0; background: none; font-size: 24px; line-height: 1; cursor: pointer; color: var(--muted); padding: 2px 6px; }
+  .modal-body { padding: 18px 20px; overflow-y: auto; }
+  .modal-foot {
+    display: flex; align-items: center; gap: 8px;
+    padding: 14px 20px;
+    border-top: 1px solid var(--border);
+  }
+  .modal-foot .spacer { flex: 1; }
+
+  .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
+  .field label { font-size: 13px; font-weight: 600; color: var(--muted); }
+  .field input, .field select, .field textarea {
+    width: 100%;
+    padding: 9px 11px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+  }
+  .field textarea { min-height: 90px; resize: vertical; }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus);
+  }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 560px) { .row { grid-template-columns: 1fr; } }
+  .hint { font-size: 12.5px; color: var(--muted); margin: -8px 0 14px; }
+
+  .section-title { font-size: 14px; font-weight: 650; margin: 8px 0 10px; }
+  .note-add { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+  .note-add textarea {
+    width: 100%; min-height: 80px; resize: vertical;
+    padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px;
+  }
+  .note-add textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus); }
+  .note-add .btn { align-self: flex-end; }
+  .notes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+  .note {
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: #fbfcfe;
+  }
+  .note-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); font-weight: 600; margin-bottom: 4px; }
+  .note-text { white-space: pre-wrap; word-break: break-word; }
+  .note-del { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 12.5px; padding: 2px 4px; }
+  .note-del:hover { color: var(--danger); text-decoration: underline; }
+  .muted { color: var(--muted); font-size: 13.5px; }
+  .history { list-style: none; margin: 0; padding: 0; font-size: 13.5px; }
+  .history li { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: 1px solid #eef1f5; }
+  .history li:last-child { border-bottom: 0; }
+  details.more { margin-top: 18px; }
+  details.more summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+  details.more[open] summary { margin-bottom: 8px; }
+
+  .stage-list { list-style: none; margin: 0 0 16px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .stage-row { display: flex; align-items: center; gap: 6px; }
+  .stage-row input {
+    flex: 1; min-width: 0;
+    padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+  }
+  .stage-row input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus); }
+  .stage-row .n { font-size: 12px; color: var(--muted); width: 64px; text-align: right; flex: none; }
+  .stage-add { display: flex; gap: 8px; }
+  .stage-add input { flex: 1; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; }
+
+  .backup-block { border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+  .backup-block h3 { margin: 0 0 4px; font-size: 15px; }
+  .backup-block p { margin: 0 0 12px; color: var(--muted); font-size: 13.5px; }
+  .backup-block .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+    background: #1f2933; color: #fff; padding: 10px 16px; border-radius: 8px;
+    box-shadow: var(--shadow-lg); z-index: 900; font-size: 14px;
+    opacity: 0; transition: opacity 0.2s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+
+  @media (max-width: 800px) {
+    .topbar { padding: 10px 14px; }
+    .board { padding: 12px 14px 16px; gap: 12px; }
+    .column { flex-basis: 250px; }
+  }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>Client Onboarding</h1>
+      <div class="status" id="status">All changes saved in this browser</div>
+    </div>
+    <div class="search" id="searchWrap">
+      <input type="search" id="search" placeholder="Search by client or business name…" autocomplete="off" aria-label="Search clients">
+      <button class="clear" id="clearSearch" type="button" aria-label="Clear search">×</button>
+    </div>
+    <div class="actions">
+      <button class="btn primary" id="addClientBtn" type="button">+ Add Client</button>
+      <button class="btn" id="stagesBtn" type="button">Edit Stages</button>
+      <button class="btn" id="backupBtn" type="button">Backup &amp; Restore</button>
+    </div>
+  </header>
+
+  <main class="board" id="board" aria-label="Onboarding board"></main>
+
+  <input type="file" id="importFile" accept=".json,.csv,application/json,text/csv" hidden>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ======================================================================
+  // Data & storage
+  // ======================================================================
+  var STORAGE_KEY = 'client-onboarding-tracker-v1';
+  var DEFAULT_STAGES = [
+    'Initial Contact',
+    'Consultation Scheduled',
+    'Proposal Sent',
+    'Contract Signed',
+    'Documents Collected',
+    'Account Setup',
+    'Onboarding Complete'
+  ];
+
+  function uid() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+  function nowISO() { return new Date().toISOString(); }
+
+  function defaultState() {
+    return {
+      version: 1,
+      stages: DEFAULT_STAGES.map(function (name) { return { id: uid(), name: name }; }),
+      clients: []
+    };
+  }
+
+  function validDate(v) {
+    if (!v) return null;
+    var d = new Date(v);
+    return isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  function str(v) { return v == null ? '' : String(v); }
+
+  // Cleans up data loaded from storage or an imported file. Returns null if unusable.
+  function normalize(data) {
+    if (!data || !Array.isArray(data.stages) || !Array.isArray(data.clients)) return null;
+    var seen = {};
+    var stages = data.stages
+      .filter(function (s) { return s && typeof s.name === 'string'; })
+      .map(function (s) {
+        var id = str(s.id) || uid();
+        if (seen[id]) id = uid();
+        seen[id] = true;
+        return { id: id, name: s.name };
+      });
+    if (!stages.length) return null;
+
+    var clients = data.clients
+      .filter(function (c) { return c && typeof c === 'object'; })
+      .map(function (c) {
+        var stageId = seen[c.stageId] ? c.stageId : stages[0].id;
+        var entered = validDate(c.stageEnteredAt) || nowISO();
+        return {
+          id: str(c.id) || uid(),
+          name: str(c.name),
+          business: str(c.business),
+          stageId: stageId,
+          stageEnteredAt: entered,
+          createdAt: validDate(c.createdAt) || entered,
+          notes: (Array.isArray(c.notes) ? c.notes : [])
+            .filter(function (n) { return n && str(n.text).trim(); })
+            .map(function (n) {
+              return { id: str(n.id) || uid(), date: validDate(n.date) || nowISO(), text: str(n.text) };
+            }),
+          stageHistory: (Array.isArray(c.stageHistory) ? c.stageHistory : [])
+            .filter(function (h) { return h && validDate(h.date); })
+            .map(function (h) {
+              return { stageId: str(h.stageId), stageName: str(h.stageName), date: validDate(h.date) };
+            })
+        };
+      });
+    return { version: 1, stages: stages, clients: clients };
+  }
+
+  var storageWorks = true;
+
+  function load() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        var parsed = normalize(JSON.parse(raw));
+        if (parsed) return parsed;
+      }
+    } catch (e) {
+      storageWorks = false;
+    }
+    return defaultState();
+  }
+
+  function save() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      storageWorks = true;
+      setStatus('All changes saved in this browser', false);
+    } catch (e) {
+      storageWorks = false;
+      setStatus('Warning: could not save. Use Backup & Restore to export your data.', true);
+    }
+  }
+
+  var state = load();
+
+  // Keep multiple open tabs in sync.
+  window.addEventListener('storage', function (e) {
+    if (e.key !== STORAGE_KEY || !e.newValue) return;
+    try {
+      var parsed = normalize(JSON.parse(e.newValue));
+      if (parsed) { state = parsed; render(); }
+    } catch (err) { /* ignore */ }
+  });
+
+  // ======================================================================
+  // Helpers
+  // ======================================================================
+  function el(tag, attrs) {
+    var node = document.createElement(tag);
+    if (attrs) {
+      Object.keys(attrs).forEach(function (k) {
+        var v = attrs[k];
+        if (v == null || v === false) return;
+        if (k === 'class') node.className = v;
+        else if (k === 'text') node.textContent = v;
+        else if (k.slice(0, 2) === 'on') node.addEventListener(k.slice(2), v);
+        else if (k in node && k !== 'list') node[k] = v;
+        else node.setAttribute(k, v);
+      });
+    }
+    for (var i = 2; i < arguments.length; i++) {
+      var child = arguments[i];
+      if (child == null || child === false) continue;
+      if (Array.isArray(child)) child.forEach(function (c) { if (c) node.appendChild(c); });
+      else node.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
+    }
+    return node;
+  }
+
+  function fmtDate(iso) {
+    return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+  function fmtDateTime(iso) {
+    return new Date(iso).toLocaleString(undefined, {
+      month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'
+    });
+  }
+  function daysSince(iso) {
+    var start = new Date(iso); start.setHours(0, 0, 0, 0);
+    var today = new Date(); today.setHours(0, 0, 0, 0);
+    return Math.max(0, Math.round((today - start) / 86400000));
+  }
+  function daysLabel(n) { return n === 0 ? 'Today' : n === 1 ? '1 day' : n + ' days'; }
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function isoDay(iso) {
+    var d = new Date(iso);
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  }
+  function isoDayTime(iso) {
+    var d = new Date(iso);
+    return isoDay(iso) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+
+  function stageById(id) {
+    for (var i = 0; i < state.stages.length; i++) if (state.stages[i].id === id) return state.stages[i];
+    return null;
+  }
+  function clientById(id) {
+    for (var i = 0; i < state.clients.length; i++) if (state.clients[i].id === id) return state.clients[i];
+    return null;
+  }
+  function clientsIn(stageId) {
+    return state.clients
+      .filter(function (c) { return c.stageId === stageId; })
+      .sort(function (a, b) { return a.stageEnteredAt < b.stageEnteredAt ? -1 : a.stageEnteredAt > b.stageEnteredAt ? 1 : 0; });
+  }
+
+  var statusEl = document.getElementById('status');
+  function setStatus(text, warn) {
+    statusEl.textContent = text;
+    statusEl.classList.toggle('warn', !!warn);
+  }
+
+  var toastEl = document.getElementById('toast');
+  var toastTimer = null;
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.classList.remove('show'); }, 2600);
+  }
+
+  // Highlights the search term inside text.
+  function highlight(text, term) {
+    var frag = document.createDocumentFragment();
+    if (!term) { frag.appendChild(document.createTextNode(text)); return frag; }
+    var lower = text.toLowerCase();
+    var pos = 0, idx;
+    while ((idx = lower.indexOf(term, pos)) !== -1) {
+      if (idx > pos) frag.appendChild(document.createTextNode(text.slice(pos, idx)));
+      frag.appendChild(el('mark', { text: text.slice(idx, idx + term.length) }));
+      pos = idx + term.length;
+    }
+    if (pos < text.length) frag.appendChild(document.createTextNode(text.slice(pos)));
+    return frag;
+  }
+
+  // ======================================================================
+  // Actions
+  // ======================================================================
+  function moveClient(client, stageId) {
+    if (!client || client.stageId === stageId || !stageById(stageId)) return false;
+    client.stageId = stageId;
+    client.stageEnteredAt = nowISO();
+    client.stageHistory.push({ stageId: stageId, stageName: stageById(stageId).name, date: client.stageEnteredAt });
+    return true;
+  }
+
+  function addNote(client, text) {
+    text = text.trim();
+    if (!text) return false;
+    client.notes.push({ id: uid(), date: nowISO(), text: text });
+    return true;
+  }
+
+  // ======================================================================
+  // Rendering the board
+  // ======================================================================
+  var boardEl = document.getElementById('board');
+  var searchEl = document.getElementById('search');
+  var searchWrap = document.getElementById('searchWrap');
+
+  function searchTerm() { return searchEl.value.trim().toLowerCase(); }
+
+  function matches(client, term) {
+    if (!term) return true;
+    return client.name.toLowerCase().indexOf(term) !== -1 ||
+           client.business.toLowerCase().indexOf(term) !== -1;
+  }
+
+  function renderCard(client, term) {
+    var days = daysSince(client.stageEnteredAt);
+    var noteCount = client.notes.length;
+    var card = el('div', {
+      class: 'card',
+      tabindex: '0',
+      role: 'button',
+      'data-id': client.id,
+      'aria-label': (client.name || 'Unnamed client') + (client.business ? ', ' + client.business : '') + '. Open details'
+    },
+      el('div', { class: 'card-name' }, highlight(client.name || 'Unnamed client', term)),
+      client.business ? el('div', { class: 'card-biz' }, highlight(client.business, term)) : null,
+      el('div', { class: 'card-meta' },
+        el('span', { title: 'Date the client entered this stage', text: 'Since ' + fmtDate(client.stageEnteredAt) }),
+        el('span', { class: 'pill', title: noteCount + (noteCount === 1 ? ' note' : ' notes'),
+          text: daysLabel(days) + (noteCount ? ' · ' + noteCount + (noteCount === 1 ? ' note' : ' notes') : '') })
+      )
+    );
+    return card;
+  }
+
+  function render() {
+    var term = searchTerm();
+    var scroll = boardEl.scrollLeft;
+    var listScroll = {};
+    boardEl.querySelectorAll('.column').forEach(function (col) {
+      listScroll[col.getAttribute('data-stage')] = col.querySelector('.card-list').scrollTop;
+    });
+
+    boardEl.textContent = '';
+    state.stages.forEach(function (stage) {
+      var all = clientsIn(stage.id);
+      var visible = all.filter(function (c) { return matches(c, term); });
+      var list = el('div', { class: 'card-list' });
+      visible.forEach(function (c) { list.appendChild(renderCard(c, term)); });
+      if (!visible.length) {
+        list.appendChild(el('div', { class: 'empty-col', text: term && all.length ? 'No matches' : 'Drag clients here' }));
+      }
+      var countText = term ? visible.length + ' / ' + all.length : String(all.length);
+      var col = el('section', { class: 'column', 'data-stage': stage.id, 'aria-label': stage.name },
+        el('div', { class: 'column-head' },
+          el('h2', { text: stage.name }),
+          el('span', { class: 'count', title: term ? 'Matching / total clients' : 'Clients in this stage', text: countText })
+        ),
+        list
+      );
+      boardEl.appendChild(col);
+      if (listScroll[stage.id]) list.scrollTop = listScroll[stage.id];
+    });
+    boardEl.scrollLeft = scroll;
+  }
+
+  searchEl.addEventListener('input', function () {
+    searchWrap.classList.toggle('has-text', !!searchEl.value);
+    render();
+  });
+  document.getElementById('clearSearch').addEventListener('click', function () {
+    searchEl.value = '';
+    searchWrap.classList.remove('has-text');
+    render();
+    searchEl.focus();
+  });
+
+  // ======================================================================
+  // Drag and drop (works with mouse, pen and touch)
+  //   Mouse: press and move.  Touch: press and hold briefly, then move.
+  // ======================================================================
+  var drag = null;
+  var suppressClick = false;
+
+  boardEl.addEventListener('pointerdown', function (e) {
+    var card = e.target.closest('.card');
+    if (!card || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    drag = {
+      card: card,
+      id: card.getAttribute('data-id'),
+      type: e.pointerType,
+      startX: e.clientX, startY: e.clientY,
+      x: e.clientX, y: e.clientY,
+      active: false, ghost: null, target: null, timer: null, raf: null
+    };
+    if (e.pointerType === 'touch') {
+      drag.timer = setTimeout(function () {
+        if (drag && !drag.active) startDrag();
+      }, 300);
+    }
+  });
+
+  document.addEventListener('pointermove', function (e) {
+    if (!drag) return;
+    drag.x = e.clientX; drag.y = e.clientY;
+    if (!drag.active) {
+      var dist = Math.hypot(drag.x - drag.startX, drag.y - drag.startY);
+      if (drag.type === 'touch') {
+        if (dist > 10) cancelDrag(); // user is scrolling, not dragging
+        return;
+      }
+      if (dist < 6) return;
+      startDrag();
+    }
+    updateDrag();
+  });
+
+  document.addEventListener('pointerup', function () {
+    if (!drag) return;
+    if (drag.active) finishDrag(); else cancelDrag();
+  });
+  document.addEventListener('pointercancel', function () { if (drag) cancelDrag(); });
+
+  // Stop the page from scrolling while a touch drag is in progress.
+  document.addEventListener('touchmove', function (e) {
+    if (drag && drag.active) e.preventDefault();
+  }, { passive: false });
+
+  function startDrag() {
+    var rect = drag.card.getBoundingClientRect();
+    drag.active = true;
+    drag.offsetX = drag.startX - rect.left;
+    drag.offsetY = drag.startY - rect.top;
+    var ghost = drag.card.cloneNode(true);
+    ghost.classList.add('ghost');
+    ghost.style.width = rect.width + 'px';
+    document.body.appendChild(ghost);
+    drag.ghost = ghost;
+    drag.card.classList.add('dragging');
+    document.body.classList.add('is-dragging');
+    if (navigator.vibrate && drag.type === 'touch') { try { navigator.vibrate(15); } catch (err) { /* ignore */ } }
+    updateDrag();
+    autoScroll();
+  }
+
+  function updateDrag() {
+    if (!drag || !drag.active) return;
+    drag.ghost.style.transform = 'translate(' + (drag.x - drag.offsetX) + 'px,' + (drag.y - drag.offsetY) + 'px) rotate(2deg)';
+    var under = document.elementFromPoint(drag.x, drag.y);
+    var col = under ? under.closest('.column') : null;
+    if (col !== drag.target) {
+      if (drag.target) drag.target.classList.remove('drop-target');
+      drag.target = col;
+      if (col) col.classList.add('drop-target');
+    }
+  }
+
+  // Scroll the board sideways (and columns up/down) when dragging near an edge.
+  function autoScroll() {
+    if (!drag || !drag.active) return;
+    var r = boardEl.getBoundingClientRect();
+    var edge = 60, speed = 14;
+    if (drag.x < r.left + edge) boardEl.scrollLeft -= speed;
+    else if (drag.x > r.right - edge) boardEl.scrollLeft += speed;
+    if (drag.target) {
+      var list = drag.target.querySelector('.card-list');
+      var lr = list.getBoundingClientRect();
+      if (drag.y < lr.top + 30) list.scrollTop -= 10;
+      else if (drag.y > lr.bottom - 30) list.scrollTop += 10;
+    }
+    updateDrag();
+    drag.raf = requestAnimationFrame(autoScroll);
+  }
+
+  function cleanupDrag() {
+    if (!drag) return;
+    clearTimeout(drag.timer);
+    if (drag.raf) cancelAnimationFrame(drag.raf);
+    if (drag.ghost) drag.ghost.remove();
+    if (drag.target) drag.target.classList.remove('drop-target');
+    drag.card.classList.remove('dragging');
+    document.body.classList.remove('is-dragging');
+    drag = null;
+  }
+  function cancelDrag() { cleanupDrag(); }
+
+  function finishDrag() {
+    var client = clientById(drag.id);
+    var stageId = drag.target ? drag.target.getAttribute('data-stage') : null;
+    suppressClick = true;
+    setTimeout(function () { suppressClick = false; }, 50);
+    cleanupDrag();
+    if (client && stageId && moveClient(client, stageId)) {
+      save();
+      render();
+      toast((client.name || 'Client') + ' moved to ' + stageById(stageId).name);
+    }
+  }
+
+  boardEl.addEventListener('click', function (e) {
+    if (suppressClick) return;
+    var card = e.target.closest('.card');
+    if (card) openClient(card.getAttribute('data-id'));
+  });
+  boardEl.addEventListener('keydown', function (e) {
+    var card = e.target.closest('.card');
+    if (card && (e.key === 'Enter' || e.key === ' ')) {
+      e.preventDefault();
+      openClient(card.getAttribute('data-id'));
+    }
+  });
+  boardEl.addEventListener('contextmenu', function (e) {
+    if (e.target.closest('.card') && (drag || e.pointerType === 'touch')) e.preventDefault();
+  });
+
+  // ======================================================================
+  // Modal
+  // ======================================================================
+  var currentModal = null;
+
+  function openModal(opts) {
+    closeModal(true);
+    var overlay = el('div', { class: 'overlay' });
+    var closeBtn = el('button', { class: 'modal-close', type: 'button', 'aria-label': 'Close', text: '×' });
+    var modal = el('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': opts.title },
+      el('div', { class: 'modal-head' }, el('h2', { text: opts.title }), closeBtn),
+      el('div', { class: 'modal-body' }, opts.body),
+      opts.footer ? el('div', { class: 'modal-foot' }, opts.footer) : null
+    );
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    currentModal = { overlay: overlay, onClose: opts.onClose, lastFocus: document.activeElement };
+
+    closeBtn.addEventListener('click', function () { closeModal(); });
+    var downOnOverlay = false;
+    overlay.addEventListener('pointerdown', function (e) { downOnOverlay = e.target === overlay; });
+    overlay.addEventListener('click', function (e) {
+      if (e.target === overlay && downOnOverlay) closeModal();
+    });
+    var focusTarget = opts.focus || modal.querySelector('input, textarea, select, button');
+    if (focusTarget) setTimeout(function () { focusTarget.focus(); }, 0);
+  }
+
+  function closeModal(silent) {
+    if (!currentModal) return;
+    var m = currentModal;
+    currentModal = null;
+    if (!silent && m.onClose) m.onClose();
+    m.overlay.remove();
+    if (m.lastFocus && m.lastFocus.focus && document.contains(m.lastFocus)) m.lastFocus.focus();
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && currentModal) { e.preventDefault(); closeModal(); }
+    // Ctrl/Cmd+F style shortcut: "/" focuses search when not typing
+    if (e.key === '/' && !currentModal && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) {
+      e.preventDefault(); searchEl.focus();
+    }
+  });
+
+  function stageSelect(selectedId) {
+    var sel = el('select');
+    state.stages.forEach(function (s) {
+      sel.appendChild(el('option', { value: s.id, text: s.name, selected: s.id === selectedId }));
+    });
+    return sel;
+  }
+
+  function field(labelText, input, id) {
+    input.id = id;
+    return el('div', { class: 'field' }, el('label', { for: id, text: labelText }), input);
+  }
+
+  // ---------- Add client ----------
+  function openAddClient() {
+    var name = el('input', { type: 'text', maxLength: 200, placeholder: 'e.g. Jane Smith' });
+    var business = el('input', { type: 'text', maxLength: 200, placeholder: 'e.g. Smith Consulting LLC' });
+    var stage = stageSelect(state.stages[0].id);
+    var notes = el('textarea', { placeholder: 'Anything worth remembering about this client…' });
+    var createBtn = el('button', { class: 'btn primary', type: 'button', text: 'Add Client' });
+
+    function create() {
+      if (!name.value.trim() && !business.value.trim()) {
+        name.focus();
+        toast('Please enter a client name or business name');
+        return;
+      }
+      var now = nowISO();
+      var client = {
+        id: uid(),
+        name: name.value.trim(),
+        business: business.value.trim(),
+        stageId: stage.value,
+        stageEnteredAt: now,
+        createdAt: now,
+        notes: [],
+        stageHistory: [{ stageId: stage.value, stageName: stageById(stage.value).name, date: now }]
+      };
+      addNote(client, notes.value);
+      state.clients.push(client);
+      save();
+      render();
+      closeModal(true);
+      toast((client.name || client.business) + ' added');
+    }
+    createBtn.addEventListener('click', create);
+    [name, business].forEach(function (i) {
+      i.addEventListener('keydown', function (e) { if (e.key === 'Enter') create(); });
+    });
+
+    openModal({
+      title: 'Add Client',
+      focus: name,
+      body: [
+        el('div', { class: 'row' },
+          field('Client Name', name, 'f-name'),
+          field('Business Name', business, 'f-biz')
+        ),
+        field('Starting Stage', stage, 'f-stage'),
+        field('Notes', notes, 'f-notes'),
+        el('p', { class: 'hint', text: 'Notes are saved with today\'s date. You can add more dated notes later.' })
+      ],
+      footer: [
+        el('div', { class: 'spacer' }),
+        el('button', { class: 'btn', type: 'button', text: 'Cancel', onclick: function () { closeModal(true); } }),
+        createBtn
+      ]
+    });
+  }
+
+  // ---------- View / edit client ----------
+  function openClient(id) {
+    var client = clientById(id);
+    if (!client) return;
+
+    var name = el('input', { type: 'text', maxLength: 200, value: client.name });
+    var business = el('input', { type: 'text', maxLength: 200, value: client.business });
+    var stage = stageSelect(client.stageId);
+    var sinceText = el('p', { class: 'hint' });
+    var noteInput = el('textarea', { placeholder: 'Write an update… (saved with today\'s date)' });
+    var notesList = el('ul', { class: 'notes' });
+    var historyList = el('ul', { class: 'history' });
+
+    function refreshSince() {
+      var d = daysSince(client.stageEnteredAt);
+      sinceText.textContent = 'In this stage since ' + fmtDate(client.stageEnteredAt) +
+        ' (' + (d === 0 ? 'today' : daysLabel(d)) + '). Client added ' + fmtDate(client.createdAt) + '.';
+    }
+
+    function refreshNotes() {
+      notesList.textContent = '';
+      if (!client.notes.length) {
+        notesList.appendChild(el('li', { class: 'muted', text: 'No notes yet.' }));
+        return;
+      }
+      client.notes.slice().sort(function (a, b) { return a.date < b.date ? 1 : -1; }).forEach(function (n) {
+        notesList.appendChild(el('li', { class: 'note' },
+          el('div', { class: 'note-head' },
+            el('span', { text: fmtDateTime(n.date) }),
+            el('button', { class: 'note-del', type: 'button', text: 'Delete', onclick: function () {
+              if (!confirm('Delete this note from ' + fmtDateTime(n.date) + '?')) return;
+              client.notes = client.notes.filter(function (x) { return x.id !== n.id; });
+              save(); render(); refreshNotes();
+            } })
+          ),
+          el('div', { class: 'note-text', text: n.text })
+        ));
+      });
+    }
+
+    function refreshHistory() {
+      historyList.textContent = '';
+      var items = client.stageHistory.slice().sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+      if (!items.length) {
+        historyList.appendChild(el('li', { class: 'muted', text: 'No stage changes recorded yet.' }));
+        return;
+      }
+      items.forEach(function (h) {
+        var s = stageById(h.stageId);
+        historyList.appendChild(el('li', {},
+          el('span', { text: s ? s.name : (h.stageName || 'Removed stage') }),
+          el('span', { class: 'muted', text: fmtDateTime(h.date) })
+        ));
+      });
+    }
+
+    function saveFields() {
+      client.name = name.value.trim();
+      client.business = business.value.trim();
+      save();
+      render();
+    }
+    name.addEventListener('input', saveFields);
+    business.addEventListener('input', saveFields);
+    stage.addEventListener('change', function () {
+      if (moveClient(client, stage.value)) {
+        save(); render(); refreshSince(); refreshHistory();
+        toast('Moved to ' + stageById(stage.value).name);
+      }
+    });
+
+    var addNoteBtn = el('button', { class: 'btn primary small', type: 'button', text: 'Add Note', onclick: function () {
+      if (addNote(client, noteInput.value)) {
+        noteInput.value = '';
+        save(); render(); refreshNotes();
+      } else {
+        noteInput.focus();
+      }
+    } });
+    noteInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) addNoteBtn.click();
+    });
+
+    refreshSince(); refreshNotes(); refreshHistory();
+
+    openModal({
+      title: client.name || client.business || 'Client',
+      body: [
+        el('div', { class: 'row' },
+          field('Client Name', name, 'e-name'),
+          field('Business Name', business, 'e-biz')
+        ),
+        field('Stage', stage, 'e-stage'),
+        sinceText,
+        el('div', { class: 'section-title', text: 'Notes' }),
+        el('div', { class: 'note-add' }, noteInput, addNoteBtn),
+        notesList,
+        el('details', { class: 'more' },
+          el('summary', { text: 'Stage history' }),
+          historyList
+        )
+      ],
+      footer: [
+        el('button', { class: 'btn danger', type: 'button', text: 'Delete Client', onclick: function () {
+          var label = client.name || client.business || 'this client';
+          if (!confirm('Delete ' + label + ' and all of their notes?\n\nThis cannot be undone.')) return;
+          state.clients = state.clients.filter(function (c) { return c.id !== client.id; });
+          save(); render();
+          closeModal(true);
+          toast(label + ' deleted');
+        } }),
+        el('div', { class: 'spacer' }),
+        el('span', { class: 'muted', text: 'Changes save automatically' }),
+        el('button', { class: 'btn primary', type: 'button', text: 'Done', onclick: function () { closeModal(); } })
+      ],
+      focus: name,
+      onClose: function () {
+        // Don't lose a note that was typed but not added.
+        if (noteInput.value.trim()) {
+          addNote(client, noteInput.value);
+          save(); render();
+          toast('Your unsaved note was added');
+        }
+      }
+    });
+  }
+
+  // ---------- Edit stages ----------
+  function openStages() {
+    var list = el('ul', { class: 'stage-list' });
+    var newName = el('input', { type: 'text', placeholder: 'New stage name', maxLength: 100, 'aria-label': 'New stage name' });
+
+    function refresh() {
+      list.textContent = '';
+      state.stages.forEach(function (s, i) {
+        var count = state.clients.filter(function (c) { return c.stageId === s.id; }).length;
+        var input = el('input', { type: 'text', value: s.name, maxLength: 100, 'aria-label': 'Stage name' });
+        input.addEventListener('input', function () {
+          s.name = input.value;
+          save(); render();
+        });
+        input.addEventListener('blur', function () {
+          if (!input.value.trim()) { s.name = 'Untitled stage'; input.value = s.name; save(); render(); }
+        });
+        list.appendChild(el('li', { class: 'stage-row' },
+          el('button', { class: 'btn icon small', type: 'button', title: 'Move left', 'aria-label': 'Move ' + s.name + ' earlier',
+            text: '↑', disabled: i === 0, onclick: function () { moveStage(i, -1); } }),
+          el('button', { class: 'btn icon small', type: 'button', title: 'Move right', 'aria-label': 'Move ' + s.name + ' later',
+            text: '↓', disabled: i === state.stages.length - 1, onclick: function () { moveStage(i, 1); } }),
+          input,
+          el('span', { class: 'n', text: count + (count === 1 ? ' client' : ' clients') }),
+          el('button', { class: 'btn icon small danger', type: 'button', title: 'Remove stage', 'aria-label': 'Remove ' + s.name,
+            text: '✕', disabled: state.stages.length === 1, onclick: function () { removeStage(i); } })
+        ));
+      });
+    }
+
+    function moveStage(i, dir) {
+      var j = i + dir;
+      if (j < 0 || j >= state.stages.length) return;
+      var tmp = state.stages[i];
+      state.stages[i] = state.stages[j];
+      state.stages[j] = tmp;
+      save(); render(); refresh();
+    }
+
+    function removeStage(i) {
+      var s = state.stages[i];
+      var inStage = state.clients.filter(function (c) { return c.stageId === s.id; });
+      if (state.stages.length === 1) return;
+      var fallback = state.stages[i > 0 ? i - 1 : 1];
+      var msg = inStage.length
+        ? 'Remove the stage "' + s.name + '"?\n\nIts ' + inStage.length + (inStage.length === 1 ? ' client' : ' clients') +
+          ' will be moved to "' + fallback.name + '".'
+        : 'Remove the stage "' + s.name + '"?';
+      if (!confirm(msg)) return;
+      inStage.forEach(function (c) { moveClient(c, fallback.id); });
+      state.stages.splice(i, 1);
+      save(); render(); refresh();
+    }
+
+    function addStage() {
+      var n = newName.value.trim();
+      if (!n) { newName.focus(); return; }
+      state.stages.push({ id: uid(), name: n });
+      newName.value = '';
+      save(); render(); refresh();
+      boardEl.scrollLeft = boardEl.scrollWidth;
+      newName.focus();
+    }
+    newName.addEventListener('keydown', function (e) { if (e.key === 'Enter') addStage(); });
+
+    refresh();
+    openModal({
+      title: 'Edit Stages',
+      focus: newName,
+      body: [
+        el('p', { class: 'muted', style: 'margin-top:0', text: 'Rename a stage by editing its name. Use the arrows to change the order (top = leftmost column).' }),
+        list,
+        el('div', { class: 'stage-add' },
+          newName,
+          el('button', { class: 'btn primary', type: 'button', text: 'Add Stage', onclick: addStage })
+        )
+      ],
+      footer: [
+        el('div', { class: 'spacer' }),
+        el('button', { class: 'btn primary', type: 'button', text: 'Done', onclick: function () { closeModal(); } })
+      ]
+    });
+  }
+
+  // ======================================================================
+  // Backup & restore (JSON = full backup, CSV = spreadsheet friendly)
+  // ======================================================================
+  function download(filename, text, mime) {
+    var blob = new Blob([text], { type: mime });
+    var url = URL.createObjectURL(blob);
+    var a = el('a', { href: url, download: filename });
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 1000);
+  }
+
+  function stamp() { return isoDay(nowISO()); }
+
+  function exportJSON() {
+    var data = { app: 'client-onboarding-tracker', exportedAt: nowISO(), version: 1, stages: state.stages, clients: state.clients };
+    download('onboarding-backup-' + stamp() + '.json', JSON.stringify(data, null, 2), 'application/json');
+    toast('Backup downloaded');
+  }
+
+  var CSV_HEADERS = ['Client Name', 'Business Name', 'Stage', 'Entered Stage', 'Client Added', 'Notes'];
+
+  function csvCell(v) {
+    v = str(v);
+    return /[",\r\n]/.test(v) || /^\s|\s$/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  }
+
+  function exportCSV() {
+    var rows = [CSV_HEADERS];
+    state.stages.forEach(function (s) {
+      clientsIn(s.id).forEach(function (c) {
+        var notes = c.notes.slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; })
+          .map(function (n) { return '[' + isoDayTime(n.date) + '] ' + n.text; }).join('\n');
+        rows.push([c.name, c.business, s.name, isoDay(c.stageEnteredAt), isoDay(c.createdAt), notes]);
+      });
+    });
+    var text = '﻿' + rows.map(function (r) { return r.map(csvCell).join(','); }).join('\r\n');
+    download('onboarding-clients-' + stamp() + '.csv', text, 'text/csv');
+    toast('CSV downloaded');
+  }
+
+  function parseCSV(text) {
+    var rows = [], row = [], cell = '', inQuotes = false;
+    for (var i = 0; i < text.length; i++) {
+      var ch = text[i];
+      if (inQuotes) {
+        if (ch === '"') {
+          if (text[i + 1] === '"') { cell += '"'; i++; } else inQuotes = false;
+        } else cell += ch;
+      } else if (ch === '"') inQuotes = true;
+      else if (ch === ',') { row.push(cell); cell = ''; }
+      else if (ch === '\n' || ch === '\r') {
+        if (ch === '\r' && text[i + 1] === '\n') i++;
+        row.push(cell); rows.push(row); row = []; cell = '';
+      } else cell += ch;
+    }
+    if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+    return rows.filter(function (r) { return r.some(function (c) { return c.trim() !== ''; }); });
+  }
+
+  // "2026-09-23" or "2026-09-23 14:05" as a local date/time
+  function parseLocalDate(s) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2}))?/.exec(str(s).trim());
+    if (m) return new Date(+m[1], +m[2] - 1, +m[3], +(m[4] || 12), +(m[5] || 0)).toISOString();
+    return validDate(s);
+  }
+
+  function parseNotes(text) {
+    var notes = [];
+    str(text).split(/\r?\n/).forEach(function (line) {
+      var m = /^\[(\d{4}-\d{2}-\d{2}(?: \d{1,2}:\d{2})?)\]\s?(.*)$/.exec(line);
+      if (m) notes.push({ id: uid(), date: parseLocalDate(m[1]) || nowISO(), text: m[2] });
+      else if (notes.length) notes[notes.length - 1].text += '\n' + line;
+      else if (line.trim()) notes.push({ id: uid(), date: nowISO(), text: line });
+    });
+    notes.forEach(function (n) { n.text = n.text.replace(/\s+$/, ''); });
+    return notes.filter(function (n) { return n.text.trim(); });
+  }
+
+  function stateFromCSV(text) {
+    var rows = parseCSV(text.replace(/^﻿/, ''));
+    if (rows.length < 1) throw new Error('The CSV file is empty.');
+    var header = rows[0].map(function (h) { return h.trim().toLowerCase(); });
+    function col(name) { return header.indexOf(name.toLowerCase()); }
+    var iName = col('Client Name'), iBiz = col('Business Name'), iStage = col('Stage'),
+        iEntered = col('Entered Stage'), iAdded = col('Client Added'), iNotes = col('Notes');
+    if (iName === -1 && iBiz === -1) throw new Error('Could not find a "Client Name" or "Business Name" column.');
+
+    // Keep the current stages and add any new stage names found in the file.
+    var stages = state.stages.map(function (s) { return { id: s.id, name: s.name }; });
+    function stageIdFor(name) {
+      name = str(name).trim();
+      if (!name) return stages[0].id;
+      for (var i = 0; i < stages.length; i++) if (stages[i].name.toLowerCase() === name.toLowerCase()) return stages[i].id;
+      var s = { id: uid(), name: name };
+      stages.push(s);
+      return s.id;
+    }
+
+    var clients = rows.slice(1).map(function (r) {
+      function get(i) { return i === -1 ? '' : str(r[i]).trim(); }
+      var stageId = stageIdFor(get(iStage));
+      var entered = parseLocalDate(get(iEntered)) || nowISO();
+      return {
+        id: uid(),
+        name: get(iName),
+        business: get(iBiz),
+        stageId: stageId,
+        stageEnteredAt: entered,
+        createdAt: parseLocalDate(get(iAdded)) || entered,
+        notes: iNotes === -1 ? [] : parseNotes(r[iNotes]),
+        stageHistory: [{ stageId: stageId, stageName: '', date: entered }]
+      };
+    }).filter(function (c) { return c.name || c.business; });
+
+    return normalize({ stages: stages, clients: clients });
+  }
+
+  function importFile(file) {
+    var reader = new FileReader();
+    reader.onload = function () {
+      var text = String(reader.result);
+      var next;
+      try {
+        var isJSON = /\.json$/i.test(file.name) || /^\s*[\{\[]/.test(text.replace(/^﻿/, ''));
+        if (isJSON) {
+          next = normalize(JSON.parse(text.replace(/^﻿/, '')));
+          if (!next) throw new Error('This file does not look like a tracker backup.');
+        } else {
+          next = stateFromCSV(text);
+        }
+      } catch (err) {
+        alert('Could not import "' + file.name + '".\n\n' + (err && err.message ? err.message : err));
+        return;
+      }
+      var msg = 'Import ' + next.clients.length + (next.clients.length === 1 ? ' client' : ' clients') +
+        ' from "' + file.name + '"?\n\nThis will REPLACE all clients currently on your board' +
+        (isJSON ? ' and your stages' : '') + '. Consider exporting a backup first.';
+      if (!confirm(msg)) return;
+      state = next;
+      save();
+      render();
+      closeModal(true);
+      toast('Imported ' + next.clients.length + ' clients');
+    };
+    reader.onerror = function () { alert('Could not read that file.'); };
+    reader.readAsText(file);
+  }
+
+  var fileInput = document.getElementById('importFile');
+  fileInput.addEventListener('change', function () {
+    if (fileInput.files && fileInput.files[0]) importFile(fileInput.files[0]);
+    fileInput.value = '';
+  });
+
+  function openBackup() {
+    openModal({
+      title: 'Backup & Restore',
+      body: [
+        el('p', { class: 'muted', style: 'margin-top:0',
+          text: 'Your data is saved automatically in this browser on this computer. Download a backup regularly, especially before clearing your browser history or switching computers.' }),
+        el('div', { class: 'backup-block' },
+          el('h3', { text: 'Export' }),
+          el('p', { text: 'JSON is a complete backup (stages, clients, all dated notes and stage history). CSV opens in Excel or Google Sheets.' }),
+          el('div', { class: 'btns' },
+            el('button', { class: 'btn primary', type: 'button', text: 'Download Backup (JSON)', onclick: exportJSON }),
+            el('button', { class: 'btn', type: 'button', text: 'Download Spreadsheet (CSV)', onclick: exportCSV })
+          )
+        ),
+        el('div', { class: 'backup-block' },
+          el('h3', { text: 'Import' }),
+          el('p', { text: 'Restore from a JSON backup or a CSV file exported from this app. Importing replaces the clients currently on your board (you will be asked to confirm).' }),
+          el('div', { class: 'btns' },
+            el('button', { class: 'btn', type: 'button', text: 'Choose File to Import…', onclick: function () { fileInput.click(); } })
+          )
+        )
+      ],
+      footer: [
+        el('div', { class: 'spacer' }),
+        el('button', { class: 'btn', type: 'button', text: 'Close', onclick: function () { closeModal(); } })
+      ]
+    });
+  }
+
+  // ======================================================================
+  // Wire up & start
+  // ======================================================================
+  document.getElementById('addClientBtn').addEventListener('click', openAddClient);
+  document.getElementById('stagesBtn').addEventListener('click', openStages);
+  document.getElementById('backupBtn').addEventListener('click', openBackup);
+
+  if (!storageWorks) setStatus('Warning: this browser is blocking saving. Use Backup & Restore to keep your data.', true);
+  else save();
+  render();
+
+  // Refresh "days in stage" labels if the page is left open overnight.
+  setInterval(render, 60 * 60 * 1000);
+})();
+</script>
+</body>
+</html>
