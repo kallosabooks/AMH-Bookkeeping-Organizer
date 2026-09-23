@@ -747,6 +747,9 @@ function required_(v, label) {
 }
 
 function clean_(v) { return v == null ? '' : String(v).trim(); }
+function isDateCell_(v) { return v instanceof Date; }
+// A name cell (accountant, stage) that holds a date or time isn't a name.
+function name_(v) { return isDateCell_(v) ? '' : clean_(v); }
 function day_(v) { var n = parseInt(v, 10); return n >= 1 && n <= 28 ? n : 1; }
 function bool_(v) { return v === true || /^(true|yes|y|1|x)$/i.test(clean_(v)); }
 function nowIso_() { return new Date().toISOString(); }
@@ -816,9 +819,13 @@ function loadModel_() {
   var m = { ss: ss, dirty: {}, checkAdds: [], checkDels: [] };
   var now = nowIso_();
 
-  m.stages = uniqueNames_(readRows_(ss, 'stages').map(function (r) { return r[0]; }));
+  var stageCells = readRows_(ss, 'stages').map(function (r) { return r[0]; });
+  m.stages = uniqueNames_(stageCells.map(name_));
+  if (stageCells.some(isDateCell_)) m.dirty.stages = true;
   if (!m.stages.length) { m.stages = DEFAULT_STAGES.slice(); m.dirty.stages = true; }
-  m.accountants = uniqueNames_(readRows_(ss, 'accountants').map(function (r) { return r[0]; }));
+  var accountantCells = readRows_(ss, 'accountants').map(function (r) { return r[0]; });
+  m.accountants = uniqueNames_(accountantCells.map(name_));
+  if (accountantCells.some(isDateCell_)) m.dirty.accountants = true;
 
   var settings = {};
   readRows_(ss, 'settings').forEach(function (r) { if (clean_(r[0])) settings[clean_(r[0])] = r[1]; });
@@ -827,13 +834,16 @@ function loadModel_() {
   var ids = {};
   m.clients = readRows_(ss, 'clients').map(function (r) {
     return {
-      id: clean_(r[0]), business: clean_(r[1]), name: clean_(r[2]), accountant: clean_(r[3]), stage: clean_(r[4]),
+      id: clean_(r[0]), business: clean_(r[1]), name: clean_(r[2]), accountant: name_(r[3]), stage: name_(r[4]),
       monthly: bool_(r[5]), recurDay: day_(r[6]), enteredAt: iso_(r[7]), createdAt: iso_(r[8]),
       lastRecurAt: iso_(r[9]), updatedAt: iso_(r[10]), updatedBy: clean_(r[11])
     };
   }).filter(function (c) { return c.id || c.business || c.name; });
 
   // Tidy up rows that were added or edited by hand in the sheet.
+  if (readRows_(ss, 'clients').some(function (r) { return isDateCell_(r[3]) || isDateCell_(r[4]); })) {
+    m.dirty.clients = true;
+  }
   m.clients.forEach(function (c) {
     if (!c.id || ids[c.id]) { c.id = newId_(); m.dirty.clients = true; }
     ids[c.id] = true;
