@@ -90,7 +90,7 @@ function doGet() {
 function setup() {
   var m = loadModel_();
   saveModel_(m);
-  console.log('Setup complete. Tabs: ' + m.ss.getSheets().map(function (s) { return s.getName(); }).join(', ') +
+  console.log('Setup complete. Tabs: ' + TABLE_ORDER.map(function (k) { return TABLES[k].sheet; }).join(', ') +
     '. Signed in as: ' + (userEmail_() || 'unknown'));
 }
 
@@ -953,7 +953,7 @@ function checkRow_(k) {
 
 // Saves ticked and unticked boxes by adding and deleting single rows.
 function saveCheckChanges_(m) {
-  var sh = m.ss.getSheetByName(TABLES.checks.sheet);
+  var sh = sheet_(m.ss, TABLES.checks.sheet);
   var dels = m.checkDels.filter(Boolean).sort(function (a, b) { return b - a; });
   dels.forEach(function (row) {
     if (sh.getMaxRows() <= 2) sh.insertRowsAfter(sh.getMaxRows(), 1);
@@ -1015,7 +1015,7 @@ function date_(iso) { return iso ? new Date(iso) : ''; }
 
 function readRows_(ss, key) {
   var t = TABLES[key];
-  var sh = ss.getSheetByName(t.sheet);
+  var sh = sheet_(ss, t.sheet);
   var last = sh.getLastRow();
   if (last < 2) return [];
   return sh.getRange(2, 1, last - 1, t.headers.length).getValues();
@@ -1023,7 +1023,7 @@ function readRows_(ss, key) {
 
 function writeTable_(ss, key, rows) {
   var t = TABLES[key];
-  var sh = ss.getSheetByName(t.sheet);
+  var sh = sheet_(ss, t.sheet);
   var width = t.headers.length;
   var last = sh.getLastRow();
   if (last > 1) sh.getRange(2, 1, last - 1, width).clearContent();
@@ -1033,11 +1033,32 @@ function writeTable_(ss, key, rows) {
   sh.getRange(2, 1, rows.length, width).setValues(rows);
 }
 
+// Finds a tab by name. Google's own getSheetByName can fail with "Sheet
+// 123 not found" when the spreadsheet still remembers a tab that was just
+// deleted; looking through the tabs one by one skips over such leftovers.
+var TAB_CACHE_ = {}; // lives for one server call only
+
+function sheet_(ss, name) {
+  var cache = TAB_CACHE_;
+  if (cache[name]) return cache[name];
+  try {
+    var direct = ss.getSheetByName(name);
+    if (direct) return (cache[name] = direct);
+  } catch (e) { /* fall back to a slower search */ }
+  var tabs = ss.getSheets();
+  for (var i = 0; i < tabs.length; i++) {
+    try {
+      if (tabs[i].getName() === name) return (cache[name] = tabs[i]);
+    } catch (e) { /* skip a tab Google can't read */ }
+  }
+  return null;
+}
+
 function ensureSheets_(ss) {
   var created = false;
   TABLE_ORDER.forEach(function (key) {
     var t = TABLES[key];
-    if (ss.getSheetByName(t.sheet)) return;
+    if (sheet_(ss, t.sheet)) return;
     var sh = ss.insertSheet(t.sheet);
     created = true;
     sh.getRange(1, 1, 1, t.headers.length).setValues([t.headers]).setFontWeight('bold').setBackground('#e8eef8');
@@ -1058,8 +1079,10 @@ function ensureSheets_(ss) {
   if (created) {
     // Remove the empty starter tab that comes with a new spreadsheet.
     ['Sheet1', 'Sheet 1'].forEach(function (n) {
-      var blank = ss.getSheetByName(n);
-      if (blank && blank.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(blank);
+      try {
+        var blank = sheet_(ss, n);
+        if (blank && blank.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(blank);
+      } catch (e) { /* leave it */ }
     });
   }
 }
