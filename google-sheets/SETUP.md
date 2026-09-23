@@ -7,7 +7,14 @@ Setup takes about 10 minutes and you only do it once. You'll copy two files from
 - `Code.gs`
 - `Index.html`
 
-To copy a file from GitHub, open it, click the **Copy raw file** button (two overlapping squares, top right of the file), and paste.
+**To copy a file from GitHub:** open the file on GitHub and click the **Raw** button (top right of the file). A plain page of text opens. Press **Ctrl+A** (Cmd+A on a Mac) to select all, then **Ctrl+C** (Cmd+C) to copy.
+
+Check what you copied before you paste it:
+
+- `Code.gs` must start with `/**`.
+- `Index.html` must start with `<!DOCTYPE html>`.
+
+If it starts with `{` or mentions `"payload"`, you copied GitHub's page data instead of the file. Go back and use the **Raw** button.
 
 ---
 
@@ -91,6 +98,7 @@ The link stays the same, so your team doesn't need a new one.
 
 ## Troubleshooting
 
+- **"Syntax error … Unexpected token" when saving**: the pasted text isn't the code file. In the Apps Script editor, select everything in `Code.gs` (Ctrl+A), delete it, and paste again using the **Raw** button method at the top of this guide. Line 1 must be `/**` and line 2 must be ` * Bookkeeping Client Tracker (shared team version)`. Check `Index.html` the same way; its line 1 must be `<!DOCTYPE html>`.
 - **"You have view-only access…"**: the person is a Viewer on the Google Sheet. Change them to Editor under Share.
 - **"You need access" or "Sorry, unable to open the file"**: the Sheet hasn't been shared with that Google account. People signed into several Google accounts should open the link in a private/incognito window, or sign in with the account you shared the Sheet with.
 - **The board doesn't load after updating the code**: make sure you deployed a **New version** (see above), and that the HTML file is named exactly `Index`.
