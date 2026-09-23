@@ -9,7 +9,7 @@ A board for tracking monthly bookkeeping clients through your workflow. There ar
 | Where the data lives | A Google Sheet you own | That browser |
 | Setup | About 10 minutes; see [google-sheets/SETUP.md](google-sheets/SETUP.md) | None; double-click the file |
 
-Both versions have the same board and features. The shared version also records who wrote each note and who moved each client.
+Both versions have the same board. The shared version also has a **Monthly Checklist** inside each client (accounts and tasks down the side, Jan–Dec across the top), a Checklist Template, and an importer for an existing per-client checklist workbook. It also records who wrote each note, moved each client or ticked each box.
 
 The rest of this page describes the single-computer version.
 

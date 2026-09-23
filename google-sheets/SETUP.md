@@ -80,6 +80,40 @@ To remove someone, remove them from the Sheet's Share list.
 
 ---
 
+## Monthly checklists
+
+Each client has a **Monthly Checklist** tab (open a client, then click the tab). It's a grid with the client's accounts and tasks down the side and Jan–Dec across the top, like a per-client checklist spreadsheet.
+
+- **Ticking boxes:** tick a box when that item is done for that month. Hover over a ticked box to see who ticked it and when.
+- **Moving between years:** use the ‹ › arrows next to the year.
+- **The highlighted month** is the one being worked on, which is last month, since a month's books are done during the next one. Board cards show that month's progress, for example **Aug 10/16**.
+- **Changing a client's items:** click **Edit items** to add accounts (such as "Van 003"), rename, reorder or remove them. Each client's list is its own.
+- **Checklist Template** (button at the top of the board): the starting list for new clients. Changing it doesn't change existing clients. It can also give the template to every client that doesn't have a checklist yet.
+
+### Bringing in your existing checklist workbook
+
+If your team already keeps a workbook with one tab per client (business name at the top, tasks down the side, Jan–Dec checkboxes, and "Additional Notes" underneath):
+
+1. Open the workbook in Google Sheets and copy its link from the address bar.
+2. In the tracker, click **Backup & Restore**. Under **Import checklists from an existing Google Sheet**, paste the link, choose the year the checkmarks are for, and click **Import Checklists**.
+
+What the import does:
+
+- **Matches tabs to clients** by business name. Tabs with no matching client are added as new clients.
+- **Brings everything over:** tasks, checkmarks and additional notes.
+- **Sets the Checklist Template** from any tab with "template" in its name.
+- **Skips tabs** that aren't checklists.
+- **Is safe to run twice:** it only adds what's missing.
+- **Replaces untouched checklists:** a client that has no checkmarks yet takes the workbook's list exactly as it is.
+
+## Updating from an earlier version
+
+If you set up the tracker before checklists were added:
+
+1. Paste the new `Code.gs` and `Index.html` over the old ones, using the **Raw** method at the top of this guide, and **Save**.
+2. Choose **setup** in the function drop-down and click **▶ Run**. This adds the new tabs (Checklist Tasks, Checklist and Checklist Template) and asks for any new permission. The importer needs permission to open your other spreadsheet.
+3. Click **Deploy → Manage deployments →** pencil icon ✏️ **→ Version: New version → Deploy**.
+
 ## Good to know
 
 - **Everyone sees the same board.** Changes save immediately, and other people's boards update within about 15 seconds.

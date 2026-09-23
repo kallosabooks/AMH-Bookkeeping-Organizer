@@ -341,6 +341,54 @@
   .backup-block p { margin: 0 0 12px; color: var(--muted); font-size: 13.5px; }
   .backup-block .btns { display: flex; gap: 8px; flex-wrap: wrap; }
 
+  .modal.wide { max-width: 1060px; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: -6px 0 16px; }
+  .tab {
+    border: 0; background: none; cursor: pointer;
+    padding: 8px 14px; margin-bottom: -1px;
+    font-weight: 600; color: var(--muted);
+    border-bottom: 2px solid transparent;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); border-radius: 6px 6px 0 0; }
+
+  .checklist-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .checklist-bar .year { font-weight: 700; font-size: 16px; min-width: 52px; text-align: center; }
+  .checklist-bar .spacer { flex: 1; }
+  .checklist-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 14px; }
+  table.checklist { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 14px; }
+  .checklist th, .checklist td { padding: 6px 4px; text-align: center; border-bottom: 1px solid #eef1f5; }
+  .checklist tbody tr:last-child td { border-bottom: 0; }
+  .checklist th { background: #f8fafc; font-size: 13px; font-weight: 650; }
+  .checklist .task {
+    position: sticky; left: 0; z-index: 1;
+    text-align: left; padding-left: 12px;
+    min-width: 170px; max-width: 260px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+  }
+  .checklist th.task { background: #f8fafc; }
+  .checklist .work { background: #eef4ff; }
+  .checklist th.work { background: #dde7fb; }
+  .checklist .mcount { display: block; font-size: 11px; font-weight: 500; color: var(--muted); }
+  .checklist th.full .mcount { color: #0f7a50; font-weight: 700; }
+  .checklist input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); cursor: pointer; vertical-align: middle; }
+  .checklist input:disabled { cursor: default; }
+  .checklist-empty { padding: 18px; text-align: center; color: var(--muted); }
+  .checklist-empty .btn { margin-top: 10px; }
+  .task-editor { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; background: #fbfcfe; }
+  .task-editor h3 { margin: 0 0 10px; font-size: 14px; }
+  .task-editor .list-edit { margin-bottom: 10px; }
+  .task-editor .list-add { margin-bottom: 10px; }
+  .pill.progress { font-weight: 600; }
+  .pill.progress.done { background: #e7f6ee; border-color: #a7dcc0; color: #0f6b47; }
+  .import-form { display: flex; flex-wrap: wrap; gap: 8px; }
+  .import-form input { flex: 1 1 260px; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; }
+  .import-form select { padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+  .import-form input:focus, .import-form select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus); }
+
   .toast {
     position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
     background: #1f2933; color: #fff; padding: 10px 16px; border-radius: 8px;
@@ -371,6 +419,7 @@
     <div class="actions">
       <button class="btn primary" id="addClientBtn" type="button" disabled>+ Add Client</button>
       <button class="btn" id="accountantsBtn" type="button" disabled>Accountants</button>
+      <button class="btn" id="templateBtn" type="button" disabled>Checklist Template</button>
       <button class="btn" id="stagesBtn" type="button" disabled>Edit Stages</button>
       <button class="btn" id="backupBtn" type="button" disabled>Backup &amp; Restore</button>
     </div>
@@ -446,7 +495,7 @@
     state = s;
     setStatus(connectedText());
     if (first) {
-      ['addClientBtn', 'accountantsBtn', 'stagesBtn', 'backupBtn'].forEach(function (id) {
+      ['addClientBtn', 'accountantsBtn', 'templateBtn', 'stagesBtn', 'backupBtn'].forEach(function (id) {
         document.getElementById(id).disabled = false;
       });
     }
@@ -558,6 +607,30 @@
     return a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true });
   }
   function shortName(email) { return str(email).split('@')[0]; }
+
+  var MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  var MONTH_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September',
+    'October', 'November', 'December'];
+  function monthKey(year, index) { return year + '-' + pad(index + 1); }
+
+  // The month being worked on: bookkeeping for a month happens during the next one.
+  function workMonth() {
+    var d = new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() - 1);
+    return { year: d.getFullYear(), index: d.getMonth(), key: monthKey(d.getFullYear(), d.getMonth()) };
+  }
+
+  // Checkmarks for one client and year. The board carries recent years; older
+  // years are fetched when opened and kept here.
+  var olderChecks = {};
+  function checksFor(c, year) {
+    if (!state.checksFrom || monthKey(year, 11) >= state.checksFrom) return c.checks;
+    return olderChecks[c.id + '|' + year] || null;
+  }
+  function doneCount(c, key) {
+    return c.tasks.filter(function (t) { return c.checks[t.id + '|' + key]; }).length;
+  }
 
   function clientById(id) {
     for (var i = 0; i < state.clients.length; i++) if (state.clients[i].id === id) return state.clients[i];
@@ -675,13 +748,25 @@
           ? el('span', { class: 'tag', title: 'Accountant' },
               el('span', { class: 'dot', style: 'background:' + accountantColor(c.accountant) }),
               highlight(c.accountant, term))
-          : el('span', { class: 'tag unassigned', text: 'Unassigned' })
+          : el('span', { class: 'tag unassigned', text: 'Unassigned' }),
+        progressPill(c)
       ),
       el('div', { class: 'card-meta' },
         el('span', { title: 'Date the client entered this stage', text: 'Since ' + fmtDate(c.enteredAt) }),
         el('span', { class: 'pill', text: daysLabel(days) + (noteCount ? ' · ' + noteCount + (noteCount === 1 ? ' note' : ' notes') : '') })
       )
     );
+  }
+
+  function progressPill(c) {
+    if (!c.tasks.length) return null;
+    var wm = workMonth();
+    var done = doneCount(c, wm.key);
+    return el('span', {
+      class: 'pill progress' + (done === c.tasks.length ? ' done' : ''),
+      title: MONTH_LONG[wm.index] + ' ' + wm.year + ' checklist: ' + done + ' of ' + c.tasks.length + ' done',
+      text: MONTH_SHORT[wm.index] + ' ' + (done === c.tasks.length ? '✓ ' : '') + done + '/' + c.tasks.length
+    });
   }
 
   function render() {
@@ -920,6 +1005,7 @@
   function openModal(opts) {
     closeModal(true);
     var b = buildModal(opts.title, opts.body, opts.footer);
+    if (opts.wide) b.modal.classList.add('wide');
     document.body.appendChild(b.overlay);
     currentModal = { overlay: b.overlay, titleEl: b.titleEl, onClose: opts.onClose, refresh: opts.refresh,
       lastFocus: document.activeElement };
@@ -1276,21 +1362,228 @@
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) addNoteBtn.click();
     });
 
-    refreshSince(); refreshNotes(); refreshHistory();
+    // ---------- Monthly checklist ----------
+    var thisYear = new Date().getFullYear();
+    var year = workMonth().year;
+    var editingTasks = false;
+    var yearLabel = el('span', { class: 'year' });
+    var prevYearBtn = el('button', { class: 'btn icon small', type: 'button', text: '‹', 'aria-label': 'Previous year',
+      onclick: function () { year--; renderChecklist(); } });
+    var nextYearBtn = el('button', { class: 'btn icon small', type: 'button', text: '›', 'aria-label': 'Next year',
+      onclick: function () { year++; renderChecklist(); } });
+    var editTasksBtn = el('button', { class: 'btn small', type: 'button', text: 'Edit items', onclick: function () {
+      editingTasks = !editingTasks;
+      renderChecklist();
+    } });
+    var tableWrap = el('div');
+    var taskEditor = el('div');
+
+    function toggleCheck(taskId, month, done) {
+      var y = +month.slice(0, 4);
+      send('toggleCheck', { clientId: id, taskId: taskId, month: month, done: done }, function () {
+        var map = checksFor(cur(), y);
+        if (!map) return;
+        if (done) map[taskId + '|' + month] = [state.me, nowISO()];
+        else delete map[taskId + '|' + month];
+      });
+    }
+
+    function useTemplate() {
+      send('applyTemplate', { clientId: id }, function () {
+        var c = cur();
+        state.template.forEach(function (name) {
+          var have = c.tasks.some(function (t) { return t.name.toLowerCase() === name.toLowerCase(); });
+          if (!have) c.tasks.push({ id: uid(), name: name });
+        });
+      });
+    }
+
+    function renderTable() {
+      var c = cur();
+      tableWrap.textContent = '';
+      yearLabel.textContent = year;
+      nextYearBtn.disabled = year >= thisYear;
+      editTasksBtn.textContent = editingTasks ? 'Done editing' : 'Edit items';
+      if (!c.tasks.length) {
+        tableWrap.appendChild(el('div', { class: 'checklist-wrap' }, el('div', { class: 'checklist-empty' },
+          el('div', { text: 'This client doesn\'t have a checklist yet.' }),
+          state.template.length
+            ? el('button', { class: 'btn primary small', type: 'button', onclick: useTemplate,
+                text: 'Start from the Checklist Template (' + state.template.length + ' items)' })
+            : null,
+          el('div', { class: 'muted', style: 'margin-top:8px', text: 'Or click "Edit items" to add this client\'s accounts and tasks.' })
+        )));
+        return;
+      }
+      var checks = checksFor(c, year);
+      if (!checks) {
+        tableWrap.appendChild(el('div', { class: 'checklist-wrap' }, el('div', { class: 'checklist-empty', text: 'Loading ' + year + '…' })));
+        var wanted = year;
+        call('getChecklistYear', id, wanted).then(function (json) {
+          olderChecks[id + '|' + wanted] = JSON.parse(json);
+          if (year === wanted && cur()) renderTable();
+        }, showError);
+        return;
+      }
+      var wm = workMonth();
+      var head = el('tr', {}, el('th', { class: 'task', scope: 'col', text: 'Item' }));
+      MONTH_SHORT.forEach(function (label, mi) {
+        var key = monthKey(year, mi);
+        var done = c.tasks.filter(function (t) { return checks[t.id + '|' + key]; }).length;
+        head.appendChild(el('th', {
+          scope: 'col',
+          class: (key === wm.key ? 'work' : '') + (done === c.tasks.length ? ' full' : ''),
+          title: MONTH_LONG[mi] + ' ' + year + ': ' + done + ' of ' + c.tasks.length + ' done' +
+            (key === wm.key ? ' (the month being worked on now)' : '')
+        }, label, el('span', { class: 'mcount', text: done + '/' + c.tasks.length })));
+      });
+      var body = el('tbody');
+      c.tasks.forEach(function (t) {
+        var isTemp = /^tmp-/.test(t.id);
+        var row = el('tr', {}, el('td', { class: 'task', title: t.name, text: t.name }));
+        MONTH_SHORT.forEach(function (label, mi) {
+          var key = monthKey(year, mi);
+          var info = checks[t.id + '|' + key];
+          var box = el('input', {
+            type: 'checkbox', checked: !!info, disabled: isTemp,
+            'aria-label': t.name + ', ' + MONTH_LONG[mi] + ' ' + year
+          });
+          box.setAttribute('data-task', t.id);
+          box.setAttribute('data-month', key);
+          row.appendChild(el('td', {
+            class: key === wm.key ? 'work' : '',
+            title: info ? 'Checked by ' + (info[0] === 'Imported' ? 'import' : shortName(info[0])) +
+              (info[1] ? ' · ' + fmtDate(info[1]) : '') : ''
+          }, box));
+        });
+        body.appendChild(row);
+      });
+      var table = el('table', { class: 'checklist' }, el('thead', {}, head), body);
+      table.addEventListener('change', function (e) {
+        var box = e.target;
+        if (box.type !== 'checkbox') return;
+        toggleCheck(box.getAttribute('data-task'), box.getAttribute('data-month'), box.checked);
+      });
+      tableWrap.appendChild(el('div', { class: 'checklist-wrap' }, table));
+    }
+
+    function renderTaskEditor() {
+      if (!editingTasks) { taskEditor.textContent = ''; return; }
+      if (taskEditor.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
+      var c = cur();
+      var list = el('ul', { class: 'list-edit' });
+      c.tasks.forEach(function (t, i) {
+        var input = el('input', { type: 'text', value: t.name, maxLength: 100, 'aria-label': 'Item name' });
+        input.addEventListener('change', function () {
+          var to = input.value.trim();
+          if (!to || to === t.name) { input.value = t.name; return; }
+          send('renameTask', { clientId: id, taskId: t.id, name: to }, function () { t.name = to; });
+        });
+        input.addEventListener('keydown', function (e) { if (e.key === 'Enter') input.blur(); });
+        list.appendChild(el('li', { class: 'list-row' },
+          el('button', { class: 'btn icon small', type: 'button', text: '↑', title: 'Move up', 'aria-label': 'Move ' + t.name + ' up',
+            disabled: i === 0, onclick: function () { moveTask(t, -1); } }),
+          el('button', { class: 'btn icon small', type: 'button', text: '↓', title: 'Move down', 'aria-label': 'Move ' + t.name + ' down',
+            disabled: i === c.tasks.length - 1, onclick: function () { moveTask(t, 1); } }),
+          input,
+          el('button', { class: 'btn icon small danger', type: 'button', text: '✕', title: 'Remove item', 'aria-label': 'Remove ' + t.name,
+            onclick: function () {
+              ask({ title: 'Remove item?', danger: true, okText: 'Remove',
+                message: 'Remove "' + t.name + '" from this client\'s checklist?\n\nIts checkmarks for every month will be deleted too.' })
+                .then(function (ok) {
+                  if (!ok) return;
+                  send('removeTask', { clientId: id, taskId: t.id }, function () {
+                    var cc = cur();
+                    cc.tasks = cc.tasks.filter(function (x) { return x.id !== t.id; });
+                  });
+                });
+            } })
+        ));
+      });
+      var newTask = el('input', { type: 'text', maxLength: 100, placeholder: 'New item, e.g. "Chase CC" or "Van 003"', 'aria-label': 'New checklist item' });
+      function addTask() {
+        var n = newTask.value.trim();
+        if (!n) { newTask.focus(); return; }
+        newTask.value = '';
+        send('addTask', { clientId: id, name: n }, function () { cur().tasks.push({ id: uid(), name: n }); });
+        newTask.focus();
+      }
+      newTask.addEventListener('keydown', function (e) { if (e.key === 'Enter') addTask(); });
+      var missing = state.template.filter(function (name) {
+        return !c.tasks.some(function (t) { return t.name.toLowerCase() === name.toLowerCase(); });
+      });
+      taskEditor.textContent = '';
+      taskEditor.appendChild(el('div', { class: 'task-editor' },
+        el('h3', { text: 'Checklist items for this client' }),
+        list,
+        el('div', { class: 'list-add' }, newTask,
+          el('button', { class: 'btn primary', type: 'button', text: 'Add Item', onclick: addTask })),
+        missing.length
+          ? el('button', { class: 'btn small', type: 'button', onclick: useTemplate,
+              text: 'Add ' + missing.length + ' missing item' + (missing.length === 1 ? '' : 's') + ' from the Checklist Template' })
+          : null
+      ));
+    }
+
+    function moveTask(t, dir) {
+      send('moveTask', { clientId: id, taskId: t.id, dir: dir }, function () {
+        var list = cur().tasks, i = list.indexOf(t), j = i + dir;
+        if (i < 0 || j < 0 || j >= list.length) return;
+        list[i] = list[j];
+        list[j] = t;
+      });
+    }
+
+    function renderChecklist() { renderTable(); renderTaskEditor(); }
+
+    // ---------- Tabs ----------
+    var TAB_KEY = 'bookkeeping-tracker-client-tab';
+    var detailsPane = el('div');
+    var checklistPane = el('div');
+    var tabButtons = {};
+    function showTab(name) {
+      detailsPane.hidden = name !== 'details';
+      checklistPane.hidden = name !== 'checklist';
+      Object.keys(tabButtons).forEach(function (k) {
+        tabButtons[k].classList.toggle('active', k === name);
+        tabButtons[k].setAttribute('aria-selected', String(k === name));
+      });
+      try { localStorage.setItem(TAB_KEY, name); } catch (e) { /* ignore */ }
+    }
+    [['details', 'Details'], ['checklist', 'Monthly Checklist']].forEach(function (pair) {
+      tabButtons[pair[0]] = el('button', { class: 'tab', type: 'button', role: 'tab', text: pair[1],
+        onclick: function () { showTab(pair[0]); } });
+    });
+
+    detailsPane.appendChild(el('div', { class: 'row' },
+      businessField,
+      field('Client / Contact Name', name, 'e-name')
+    ));
+    detailsPane.appendChild(el('div', { class: 'row' },
+      field('Accountant', accountant, 'e-acc'),
+      field('Stage', stage, 'e-stage')
+    ));
+    detailsPane.appendChild(sinceText);
+    detailsPane.appendChild(recur.node);
+
+    checklistPane.appendChild(el('div', { class: 'checklist-bar' },
+      prevYearBtn, yearLabel, nextYearBtn,
+      el('span', { class: 'muted', text: 'The highlighted month is the one being worked on now.' }),
+      el('span', { class: 'spacer' }),
+      editTasksBtn
+    ));
+    checklistPane.appendChild(tableWrap);
+    checklistPane.appendChild(taskEditor);
+
+    refreshSince(); refreshNotes(); refreshHistory(); renderChecklist();
 
     openModal({
       title: displayName(start),
+      wide: true,
       body: [
-        el('div', { class: 'row' },
-          businessField,
-          field('Client / Contact Name', name, 'e-name')
-        ),
-        el('div', { class: 'row' },
-          field('Accountant', accountant, 'e-acc'),
-          field('Stage', stage, 'e-stage')
-        ),
-        sinceText,
-        recur.node,
+        el('div', { class: 'tabs', role: 'tablist' }, tabButtons.details, tabButtons.checklist),
+        detailsPane,
+        checklistPane,
         el('div', { class: 'section-title', text: 'Notes' }),
         el('div', { class: 'note-add' }, noteInput, addNoteBtn),
         notesList,
@@ -1339,9 +1632,12 @@
         if (document.activeElement !== stage) fillStageSelect(stage, c.stage);
         accountant.refill();
         recur.set(c.monthly, c.recurDay);
-        refreshSince(); refreshNotes(); refreshHistory();
+        refreshSince(); refreshNotes(); refreshHistory(); renderChecklist();
       }
     });
+    var savedTab = 'details';
+    try { savedTab = localStorage.getItem(TAB_KEY) === 'checklist' ? 'checklist' : 'details'; } catch (e) { /* ignore */ }
+    showTab(savedTab);
   }
 
   // ---------- Accountants ----------
@@ -1409,6 +1705,90 @@
         el('div', { class: 'list-add' },
           newName,
           el('button', { class: 'btn primary', type: 'button', text: 'Add Accountant', onclick: add })
+        )
+      ],
+      footer: [
+        el('div', { class: 'spacer' }),
+        el('button', { class: 'btn primary', type: 'button', text: 'Done', onclick: function () { closeModal(); } })
+      ]
+    });
+  }
+
+  // ---------- Checklist template ----------
+  function openTemplate() {
+    var list = el('ul', { class: 'list-edit' });
+    var newName = el('input', { type: 'text', placeholder: 'New item, e.g. "Checking"', maxLength: 100, 'aria-label': 'New template item' });
+    var applyBox = el('div');
+
+    function save(next) {
+      send('setTemplate', { tasks: next }, function () { state.template = next; });
+    }
+
+    function refresh() {
+      var without = state.clients.filter(function (c) { return !c.tasks.length; }).length;
+      applyBox.textContent = '';
+      if (without && state.template.length) {
+        applyBox.appendChild(el('div', { class: 'setting' },
+          el('span', { text: without + (without === 1 ? ' client doesn\'t' : ' clients don\'t') + ' have a checklist yet.' }),
+          el('button', { class: 'btn primary small', type: 'button', text: 'Give them this checklist', onclick: function () {
+            send('applyTemplateAll', {}).then(function (json) {
+              var r = JSON.parse(json).result || {};
+              toast('Checklist added to ' + (r.clients || 0) + ' clients');
+            });
+          } })
+        ));
+      }
+      if (list.contains(document.activeElement)) return;
+      list.textContent = '';
+      if (!state.template.length) list.appendChild(el('li', { class: 'muted', text: 'No items yet. Add them below.' }));
+      state.template.forEach(function (name, i) {
+        var input = el('input', { type: 'text', value: name, maxLength: 100, 'aria-label': 'Template item' });
+        input.addEventListener('change', function () {
+          var to = input.value.trim();
+          if (!to || to === name) { input.value = name; return; }
+          save(state.template.map(function (x, k) { return k === i ? to : x; }));
+        });
+        input.addEventListener('keydown', function (e) { if (e.key === 'Enter') input.blur(); });
+        function move(dir) {
+          var next = state.template.slice(), j = i + dir;
+          next[i] = next[j];
+          next[j] = name;
+          save(next);
+        }
+        list.appendChild(el('li', { class: 'list-row' },
+          el('button', { class: 'btn icon small', type: 'button', text: '↑', title: 'Move up', 'aria-label': 'Move ' + name + ' up',
+            disabled: i === 0, onclick: function () { move(-1); } }),
+          el('button', { class: 'btn icon small', type: 'button', text: '↓', title: 'Move down', 'aria-label': 'Move ' + name + ' down',
+            disabled: i === state.template.length - 1, onclick: function () { move(1); } }),
+          input,
+          el('button', { class: 'btn icon small danger', type: 'button', text: '✕', title: 'Remove', 'aria-label': 'Remove ' + name,
+            onclick: function () { save(state.template.filter(function (x, k) { return k !== i; })); } })
+        ));
+      });
+    }
+
+    function add() {
+      var n = newName.value.trim();
+      if (!n) { newName.focus(); return; }
+      newName.value = '';
+      var exists = state.template.some(function (x) { return x.toLowerCase() === n.toLowerCase(); });
+      if (!exists) save(state.template.concat([n]));
+      newName.focus();
+    }
+    newName.addEventListener('keydown', function (e) { if (e.key === 'Enter') add(); });
+
+    refresh();
+    openModal({
+      title: 'Checklist Template',
+      focus: newName,
+      refresh: refresh,
+      body: [
+        el('p', { class: 'muted', style: 'margin-top:0', text: 'New clients start with these checklist items. Each client\'s own list can then be changed on its Monthly Checklist tab. Changing the template doesn\'t change existing clients.' }),
+        applyBox,
+        list,
+        el('div', { class: 'list-add' },
+          newName,
+          el('button', { class: 'btn primary', type: 'button', text: 'Add Item', onclick: add })
         )
       ],
       footer: [
@@ -1534,13 +1914,11 @@
   function stamp() { return isoDay(nowISO()); }
 
   function exportJSON() {
-    var data = {
-      app: 'bookkeeping-tracker-shared', version: 3, exportedAt: nowISO(),
-      stages: state.stages, accountants: state.accountants, restartStage: state.restartStage,
-      clients: state.clients
-    };
-    download('bookkeeping-backup-' + stamp() + '.json', JSON.stringify(data, null, 2), 'application/json');
-    toast('Backup downloaded');
+    toast('Preparing the backup…');
+    call('exportAll').then(function (json) {
+      download('bookkeeping-backup-' + stamp() + '.json', JSON.stringify(JSON.parse(json), null, 2), 'application/json');
+      toast('Backup downloaded');
+    }, showError);
   }
 
   var CSV_HEADERS = ['Business Name', 'Client Name', 'Accountant', 'Stage', 'Monthly', 'Monthly Day',
@@ -1643,7 +2021,8 @@
   function payloadFromJSON(d) {
     if (d && d.app === 'bookkeeping-tracker-shared') {
       if (!Array.isArray(d.stages) || !Array.isArray(d.clients)) throw new Error('This backup file is damaged.');
-      return { stages: d.stages, accountants: d.accountants || [], restartStage: d.restartStage, clients: d.clients };
+      return { stages: d.stages, accountants: d.accountants || [], restartStage: d.restartStage,
+        template: d.template, clients: d.clients };
     }
     if (!d || !Array.isArray(d.stages) || !Array.isArray(d.clients)) {
       throw new Error('This file does not look like a tracker backup.');
@@ -1715,7 +2094,42 @@
     fileInput.value = '';
   });
 
+  function importFromWorkbook(urlInput, yearSel, btn) {
+    var url = urlInput.value.trim();
+    if (!url) { urlInput.focus(); return; }
+    btn.disabled = true;
+    btn.textContent = 'Importing… (this can take a minute)';
+    send('importChecklists', { url: url, year: +yearSel.value }).then(function (json) {
+      btn.disabled = false;
+      btn.textContent = 'Import Checklists';
+      var r = JSON.parse(json).result || {};
+      function n(count, word) { return count + ' ' + word + (count === 1 ? '' : 's'); }
+      var created = r.created || [], matched = r.matched || [];
+      var lines = [
+        'Read ' + n(r.tabs, 'checklist tab') + '.',
+        n(matched.length, 'tab') + ' matched a client already on the board.',
+        n(created.length, 'new client') + ' added to "' + restartStage() + '"' + (created.length ? ': ' + created.join(', ') : '') + '.',
+        'Added ' + n(r.tasks, 'checklist item') + ', ' + n(r.checks, 'checkmark') + ' for ' + yearSel.value + ', and ' + n(r.notes, 'note') + '.'
+      ];
+      if (r.template) lines.push('The Checklist Template was set from the template tab (' + r.template + ' items).');
+      if ((r.skipped || []).length) lines.push('Skipped (not a checklist): ' + r.skipped.join(', ') + '.');
+      closeModal(true);
+      ask({ title: 'Import finished', message: lines.join('\n\n'), okText: 'OK' });
+    }, function () {
+      btn.disabled = false;
+      btn.textContent = 'Import Checklists';
+    });
+  }
+
   function openBackup() {
+    var thisYear = new Date().getFullYear();
+    var urlInput = el('input', { type: 'text', placeholder: 'Paste the link to your checklist Google Sheet', 'aria-label': 'Google Sheet link' });
+    var yearSel = el('select', { 'aria-label': 'Year the checkmarks are for' });
+    [thisYear, thisYear - 1, thisYear - 2].forEach(function (y) {
+      yearSel.appendChild(el('option', { value: String(y), text: 'Checkmarks are for ' + y, selected: y === workMonth().year }));
+    });
+    var importBtn = el('button', { class: 'btn primary', type: 'button', text: 'Import Checklists' });
+    importBtn.addEventListener('click', function () { importFromWorkbook(urlInput, yearSel, importBtn); });
     openModal({
       title: 'Backup & Restore',
       body: [
@@ -1733,6 +2147,11 @@
             el('button', { class: 'btn primary', type: 'button', text: 'Download Backup (JSON)', onclick: exportJSON }),
             el('button', { class: 'btn', type: 'button', text: 'Download Spreadsheet (CSV)', onclick: exportCSV })
           )
+        ),
+        el('div', { class: 'backup-block' },
+          el('h3', { text: 'Import checklists from an existing Google Sheet' }),
+          el('p', { text: 'For a workbook with one tab per client (business name at the top, tasks down the side, Jan–Dec checkboxes). Tabs are matched to clients by business name, and new clients are added. A tab with "template" in its name becomes the Checklist Template. Additional notes are copied too. Running it again only adds what is missing.' }),
+          el('div', { class: 'import-form' }, urlInput, yearSel, importBtn)
         ),
         el('div', { class: 'backup-block' },
           el('h3', { text: 'Import' }),
@@ -1754,6 +2173,7 @@
   // ======================================================================
   document.getElementById('addClientBtn').addEventListener('click', openAddClient);
   document.getElementById('accountantsBtn').addEventListener('click', openAccountants);
+  document.getElementById('templateBtn').addEventListener('click', openTemplate);
   document.getElementById('stagesBtn').addEventListener('click', openStages);
   document.getElementById('backupBtn').addEventListener('click', openBackup);
 

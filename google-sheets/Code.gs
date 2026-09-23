@@ -41,12 +41,36 @@ var TABLES = {
   },
   stages: { sheet: 'Stages', headers: ['Stage'], widths: { 1: 220 } },
   accountants: { sheet: 'Accountants', headers: ['Accountant'], widths: { 1: 220 } },
-  settings: { sheet: 'Settings', headers: ['Setting', 'Value'], widths: { 1: 220, 2: 220 } }
+  settings: { sheet: 'Settings', headers: ['Setting', 'Value'], widths: { 1: 220, 2: 220 } },
+  // Each client's own checklist items, in display order.
+  tasks: {
+    sheet: 'Checklist Tasks',
+    headers: ['Client ID', 'Business Name', 'Task ID', 'Task'],
+    widths: { 2: 200, 4: 260 }
+  },
+  // One row per ticked box. Month is written as text, e.g. 2026-08.
+  checks: {
+    sheet: 'Checklist',
+    headers: ['Client ID', 'Business Name', 'Task ID', 'Task', 'Month', 'Checked By', 'Checked On'],
+    dateCols: [7],
+    widths: { 2: 200, 4: 240, 6: 180 }
+  },
+  template: { sheet: 'Checklist Template', headers: ['Task'], widths: { 1: 260 } }
 };
-var TABLE_ORDER = ['clients', 'notes', 'history', 'stages', 'accountants', 'settings'];
+var TABLE_ORDER = ['clients', 'notes', 'history', 'stages', 'accountants', 'settings', 'tasks', 'checks', 'template'];
 var RESTART_SETTING = 'Monthly clients restart in';
 var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August',
   'September', 'October', 'November', 'December'];
+var DEFAULT_TEMPLATE = [
+  'Checking',
+  'Savings',
+  'Credit Card',
+  'Loans',
+  'Payroll Liabilities',
+  'Reclassify Transactions',
+  'Transaction Questions',
+  'Month Complete'
+];
 
 // ============================================================================
 // Web app entry points
@@ -111,7 +135,42 @@ function mutate(op, args) {
       OPS[op](m, args || {}, userEmail_());
       runRecurrences_(m);
       saveModel_(m);
-      return JSON.stringify(stateOf_(m));
+      var state = stateOf_(m);
+      if (m.result) state.result = m.result;
+      return JSON.stringify(state);
+    });
+  } catch (e) {
+    throw friendlyError_(e);
+  }
+}
+
+/**
+ * The board only carries checkmarks for this year and last year. Older
+ * years are fetched with this when someone looks at them.
+ */
+function getChecklistYear(clientId, year) {
+  try {
+    var m = loadModel_();
+    var prefix = String(year) + '-';
+    var out = {};
+    m.checks.forEach(function (k) {
+      if (k.clientId === clientId && k.month.indexOf(prefix) === 0) out[k.taskId + '|' + k.month] = [k.by, k.date];
+    });
+    return JSON.stringify(out);
+  } catch (e) {
+    throw friendlyError_(e);
+  }
+}
+
+/** A complete backup, including every year of checklists. */
+function exportAll() {
+  try {
+    var m = loadModel_();
+    var state = stateOf_(m, true);
+    return JSON.stringify({
+      app: 'bookkeeping-tracker-shared', version: 4, exportedAt: nowIso_(),
+      stages: state.stages, accountants: state.accountants, restartStage: state.restartStage,
+      template: state.template, clients: state.clients
     });
   } catch (e) {
     throw friendlyError_(e);
@@ -142,6 +201,7 @@ var OPS = {
     m.clients.push(c);
     m.history.push({ clientId: c.id, business: c.business, stage: c.stage, date: now, by: me, auto: false });
     if (clean_(a.note)) addNoteRow_(m, c, a.note, me);
+    m.template.forEach(function (name) { addTaskRow_(m, c, name); });
     m.dirty.clients = m.dirty.history = true;
   },
 
@@ -153,7 +213,9 @@ var OPS = {
         c.business = b;
         m.notes.forEach(function (n) { if (n.clientId === c.id) n.business = b; });
         m.history.forEach(function (h) { if (h.clientId === c.id) h.business = b; });
-        m.dirty.notes = m.dirty.history = true;
+        m.tasks.forEach(function (t) { if (t.clientId === c.id) t.business = b; });
+        m.checks.forEach(function (k) { if (k.clientId === c.id) k.business = b; });
+        m.dirty.notes = m.dirty.history = m.dirty.tasks = m.dirty.checks = true;
       }
     }
     if ('name' in a) c.name = clean_(a.name);
@@ -177,7 +239,9 @@ var OPS = {
     m.clients = m.clients.filter(function (x) { return x.id !== c.id; });
     m.notes = m.notes.filter(function (n) { return n.clientId !== c.id; });
     m.history = m.history.filter(function (h) { return h.clientId !== c.id; });
-    m.dirty.clients = m.dirty.notes = m.dirty.history = true;
+    m.tasks = m.tasks.filter(function (t) { return t.clientId !== c.id; });
+    m.checks = m.checks.filter(function (k) { return k.clientId !== c.id; });
+    m.dirty.clients = m.dirty.notes = m.dirty.history = m.dirty.tasks = m.dirty.checks = true;
   },
 
   addNote: function (m, a, me) {
@@ -269,6 +333,9 @@ var OPS = {
     m.clients = [];
     m.notes = [];
     m.history = [];
+    m.tasks = [];
+    m.checks = [];
+    if (Array.isArray(d.template)) m.template = uniqueNames_(d.template);
     var now = nowIso_();
     (Array.isArray(d.clients) ? d.clients : []).forEach(function (x) {
       if (!x) return;
@@ -299,10 +366,248 @@ var OPS = {
         m.history.push({ clientId: c.id, business: c.business, stage: clean_(h.stage) || c.stage,
           date: iso_(h.date), by: clean_(h.by), auto: !!h.auto });
       });
+      var taskIds = {};
+      (Array.isArray(x.tasks) ? x.tasks : []).forEach(function (t) {
+        var name = clean_(t && t.name);
+        if (!name) return;
+        var task = addTaskRow_(m, c, name);
+        if (t.id) taskIds[t.id] = task;
+      });
+      var checks = x.checks && typeof x.checks === 'object' ? x.checks : {};
+      Object.keys(checks).forEach(function (key) {
+        var parts = key.split('|'), task = taskIds[parts[0]], month = monthKey_(parts[1]);
+        if (!task || !month) return;
+        var info = Array.isArray(checks[key]) ? checks[key] : [];
+        m.checks.push({ clientId: c.id, business: c.business, taskId: task.id, task: task.name, month: month,
+          by: clean_(info[0]), date: iso_(info[1]) || now });
+      });
     });
     TABLE_ORDER.forEach(function (k) { m.dirty[k] = true; });
+  },
+
+  // ---------- Monthly checklists ----------
+
+  toggleCheck: function (m, a, me) {
+    var c = client_(m, a.clientId);
+    var t = task_(m, c, a.taskId);
+    var month = monthKey_(a.month);
+    if (!month) throw new Error('That month is not valid.');
+    var idx = -1;
+    for (var i = 0; i < m.checks.length; i++) {
+      var k = m.checks[i];
+      if (k.clientId === c.id && k.taskId === t.id && k.month === month) { idx = i; break; }
+    }
+    if (a.done && idx === -1) {
+      var added = { clientId: c.id, business: c.business, taskId: t.id, task: t.name, month: month, by: me,
+        date: nowIso_() };
+      m.checks.push(added);
+      m.checkAdds.push(added);
+    } else if (!a.done && idx !== -1) {
+      var removed = m.checks.splice(idx, 1)[0];
+      m.checkDels.push(removed.row);
+    }
+  },
+
+  addTask: function (m, a) {
+    var c = client_(m, a.clientId);
+    var name = required_(a.name, 'Task name');
+    if (findName_(clientTaskNames_(m, c), name)) throw new Error('This client already has "' + name + '".');
+    addTaskRow_(m, c, name);
+  },
+
+  renameTask: function (m, a) {
+    var c = client_(m, a.clientId);
+    var t = task_(m, c, a.taskId);
+    var name = required_(a.name, 'Task name');
+    var clash = findName_(clientTaskNames_(m, c), name);
+    if (clash && clash !== t.name) throw new Error('This client already has "' + name + '".');
+    t.name = name;
+    m.checks.forEach(function (k) { if (k.taskId === t.id) k.task = name; });
+    m.dirty.tasks = m.dirty.checks = true;
+  },
+
+  moveTask: function (m, a) {
+    var c = client_(m, a.clientId);
+    var t = task_(m, c, a.taskId);
+    var mine = m.tasks.filter(function (x) { return x.clientId === c.id; });
+    var i = mine.indexOf(t), j = i + (a.dir < 0 ? -1 : 1);
+    if (j < 0 || j >= mine.length) return;
+    // Swap the two tasks' positions in the full list.
+    var ai = m.tasks.indexOf(mine[i]), aj = m.tasks.indexOf(mine[j]);
+    m.tasks[ai] = mine[j];
+    m.tasks[aj] = mine[i];
+    m.dirty.tasks = true;
+  },
+
+  removeTask: function (m, a) {
+    var c = client_(m, a.clientId);
+    var t = task_(m, c, a.taskId);
+    m.tasks = m.tasks.filter(function (x) { return x !== t; });
+    m.checks = m.checks.filter(function (k) { return k.taskId !== t.id; });
+    m.dirty.tasks = m.dirty.checks = true;
+  },
+
+  // Adds any template items the client doesn't have yet.
+  applyTemplate: function (m, a) {
+    var c = client_(m, a.clientId);
+    var names = clientTaskNames_(m, c);
+    m.template.forEach(function (name) { if (!findName_(names, name)) addTaskRow_(m, c, name); });
+  },
+
+  // Gives the template to every client that has no checklist yet.
+  applyTemplateAll: function (m) {
+    var count = 0;
+    m.clients.forEach(function (c) {
+      if (clientTaskNames_(m, c).length) return;
+      m.template.forEach(function (name) { addTaskRow_(m, c, name); });
+      count++;
+    });
+    m.result = { clients: count };
+  },
+
+  setTemplate: function (m, a) {
+    m.template = uniqueNames_(a.tasks);
+    m.dirty.template = true;
+  },
+
+  /**
+   * Reads a workbook laid out like the old per-client checklist sheets: one
+   * tab per client with the business name at the top, a row of month names
+   * (Jan..Dec), task names down the first column with checkboxes under each
+   * month, and an optional "Additional Notes" section. A tab whose name
+   * contains "template" becomes the Checklist Template. Tabs are matched to
+   * clients by business name; unknown ones are added as new clients.
+   * Running it again only adds what is missing.
+   */
+  importChecklists: function (m, a, me) {
+    var year = parseInt(a.year, 10);
+    if (!(year > 2000 && year < 2100)) throw new Error('Please choose a year.');
+    var url = clean_(a.url);
+    if (!url) throw new Error('Please paste the link to the Google Sheet.');
+    var src;
+    try {
+      src = /^https?:/i.test(url) ? SpreadsheetApp.openByUrl(url) : SpreadsheetApp.openById(url);
+    } catch (e) {
+      throw new Error('Could not open that Google Sheet. Check the link, and that your account can open it. ' +
+        '(Details from Google: ' + e.message + ')');
+    }
+    if (src.getId() === m.ss.getId()) throw new Error('That link is this tracker\'s own Sheet. Paste the link to your old checklist workbook.');
+
+    var summary = { tabs: 0, created: [], matched: [], checks: 0, tasks: 0, notes: 0, template: 0, skipped: [] };
+    src.getSheets().forEach(function (sh) {
+      var parsed = parseChecklistTab_(sh.getDataRange().getValues());
+      if (!parsed) { summary.skipped.push(sh.getName()); return; }
+      summary.tabs++;
+
+      if (/template/i.test(sh.getName())) {
+        m.template = uniqueNames_(parsed.tasks.map(function (t) { return t.name; }));
+        m.dirty.template = true;
+        summary.template = m.template.length;
+        return;
+      }
+
+      var business = parsed.title || clean_(sh.getName());
+      var c = null;
+      for (var i = 0; i < m.clients.length; i++) {
+        if (m.clients[i].business.toLowerCase() === business.toLowerCase()) { c = m.clients[i]; break; }
+      }
+      if (c) {
+        summary.matched.push(c.business);
+      } else {
+        var now = nowIso_();
+        c = { id: newId_(), business: business, name: '', accountant: '', stage: m.restartStage, monthly: true,
+          recurDay: 1, enteredAt: now, createdAt: now, lastRecurAt: now, updatedAt: now, updatedBy: me };
+        m.clients.push(c);
+        m.history.push({ clientId: c.id, business: c.business, stage: c.stage, date: now, by: me, auto: false });
+        m.dirty.clients = m.dirty.history = true;
+        summary.created.push(business);
+      }
+
+      // A client nobody has ticked anything for yet takes the workbook's list
+      // as-is (dropping template items it doesn't use); otherwise merge.
+      var hasChecks = m.checks.some(function (k) { return k.clientId === c.id; });
+      if (!hasChecks) {
+        m.tasks = m.tasks.filter(function (t) { return t.clientId !== c.id; });
+        m.dirty.tasks = true;
+      }
+      var names = clientTaskNames_(m, c);
+      parsed.tasks.forEach(function (row) {
+        var existing = findName_(names, row.name);
+        var task = existing ? m.tasks.filter(function (t) { return t.clientId === c.id && t.name === existing; })[0]
+          : addTaskRow_(m, c, row.name);
+        if (!existing) { names.push(task.name); summary.tasks++; }
+        row.months.forEach(function (mi) {
+          var month = year + '-' + (mi < 9 ? '0' : '') + (mi + 1);
+          var have = m.checks.some(function (k) { return k.taskId === task.id && k.month === month; });
+          if (have) return;
+          var added = { clientId: c.id, business: c.business, taskId: task.id, task: task.name, month: month,
+            by: 'Imported', date: nowIso_() };
+          m.checks.push(added);
+          m.checkAdds.push(added);
+          summary.checks++;
+        });
+      });
+
+      parsed.notes.forEach(function (text) {
+        var dup = m.notes.some(function (n) { return n.clientId === c.id && n.text === text; });
+        if (!dup) { addNoteRow_(m, c, text, 'Imported'); summary.notes++; }
+      });
+    });
+    if (!summary.tabs) {
+      throw new Error('No checklist tabs were found in that Sheet. Each tab needs a row with the month names ' +
+        '(Jan, Feb, Mar …) above the list of tasks.');
+    }
+    m.result = summary;
   }
 };
+
+var MONTH_ABBR = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+// Understands one tab of the old checklist workbook. Returns null if the tab
+// doesn't look like a checklist.
+function parseChecklistTab_(values) {
+  var headerRow = -1, monthCols = {};
+  for (var r = 0; r < Math.min(values.length, 15) && headerRow === -1; r++) {
+    var cols = {}, found = 0;
+    for (var c = 0; c < values[r].length; c++) {
+      var idx = MONTH_ABBR.indexOf(clean_(values[r][c]).slice(0, 3).toLowerCase());
+      if (idx !== -1 && clean_(values[r][c]).length <= 9) { cols[c] = idx; found++; }
+    }
+    if (found >= 6) { headerRow = r; monthCols = cols; }
+  }
+  if (headerRow === -1) return null;
+
+  // The task names are in the first column that isn't a month column.
+  var taskCol = 0;
+  while (taskCol in monthCols) taskCol++;
+
+  var title = '';
+  for (r = 0; r < headerRow && !title; r++) {
+    for (c = 0; c < values[r].length && !title; c++) title = clean_(values[r][c]);
+  }
+
+  var tasks = [];
+  for (r = headerRow + 1; r < values.length; r++) {
+    var name = clean_(values[r][taskCol]);
+    if (!name || /^additional notes/i.test(name)) break;
+    var months = [];
+    Object.keys(monthCols).forEach(function (col) {
+      if (values[r][col] === true || /^(true|x|✓|✔|yes)$/i.test(clean_(values[r][col]))) months.push(monthCols[col]);
+    });
+    tasks.push({ name: name, months: months });
+  }
+
+  var notes = [];
+  for (r = headerRow + 1; r < values.length; r++) {
+    if (!values[r].some(function (v) { return /^additional notes/i.test(clean_(v)); })) continue;
+    for (var n = r + 1; n < values.length; n++) {
+      var text = values[n].map(clean_).filter(Boolean).join(' ');
+      if (text) notes.push(text);
+    }
+    break;
+  }
+  return { title: title, tasks: tasks, notes: notes };
+}
 
 // ============================================================================
 // Monthly recurrence
@@ -363,6 +668,32 @@ function addNoteRow_(m, c, text, author) {
   m.notes.push({ id: newId_(), clientId: c.id, business: c.business, date: nowIso_(), author: author,
     text: String(text).trim() });
   m.dirty.notes = true;
+}
+
+function addTaskRow_(m, c, name) {
+  var t = { clientId: c.id, business: c.business, id: newId_(), name: clean_(name) };
+  m.tasks.push(t);
+  m.dirty.tasks = true;
+  return t;
+}
+
+function clientTaskNames_(m, c) {
+  return m.tasks.filter(function (t) { return t.clientId === c.id; }).map(function (t) { return t.name; });
+}
+
+function task_(m, c, id) {
+  for (var i = 0; i < m.tasks.length; i++) {
+    if (m.tasks[i].id === id && m.tasks[i].clientId === c.id) return m.tasks[i];
+  }
+  throw new Error('That checklist item was removed by someone else. The board has been refreshed.');
+}
+
+// Turns a Date or text like "2026-8" / "2026-08" into "2026-08".
+function monthKey_(v) {
+  if (v instanceof Date && !isNaN(v.getTime())) return v.getFullYear() + '-' + ('0' + (v.getMonth() + 1)).slice(-2);
+  var m = /^(\d{4})-(\d{1,2})$/.exec(clean_(v));
+  if (!m || +m[2] < 1 || +m[2] > 12) return '';
+  return m[1] + '-' + ('0' + m[2]).slice(-2);
 }
 
 function touch_(m, c, me) {
@@ -436,7 +767,7 @@ function userEmail_() {
 }
 
 function isDirty_(m) {
-  return TABLE_ORDER.some(function (k) { return m.dirty[k]; });
+  return m.checkAdds.length > 0 || m.checkDels.length > 0 || TABLE_ORDER.some(function (k) { return m.dirty[k]; });
 }
 
 function withLock_(fn) {
@@ -480,7 +811,9 @@ function loadModel_() {
       'Extensions → Apps Script, and paste the code there (see SETUP.md).');
   }
   ensureSheets_(ss);
-  var m = { ss: ss, dirty: {} };
+  // checkAdds / checkDels let a single tick be saved without rewriting the
+  // whole Checklist tab, which grows every month.
+  var m = { ss: ss, dirty: {}, checkAdds: [], checkDels: [] };
   var now = nowIso_();
 
   m.stages = uniqueNames_(readRows_(ss, 'stages').map(function (r) { return r[0]; }));
@@ -526,6 +859,27 @@ function loadModel_() {
       by: clean_(r[4]), auto: bool_(r[5]) };
   }).filter(function (h) { return h.date && ids[h.clientId]; });
 
+  m.template = uniqueNames_(readRows_(ss, 'template').map(function (r) { return r[0]; }));
+
+  var taskIds = {};
+  m.tasks = readRows_(ss, 'tasks').map(function (r) {
+    return { clientId: clean_(r[0]), business: clean_(r[1]), id: clean_(r[2]), name: clean_(r[3]) };
+  }).filter(function (t) { return t.name && ids[t.clientId]; });
+  m.tasks.forEach(function (t) {
+    if (!t.id || taskIds[t.id]) { t.id = newId_(); m.dirty.tasks = true; }
+    taskIds[t.id] = t;
+  });
+
+  m.checks = [];
+  readRows_(ss, 'checks').forEach(function (r, i) {
+    var k = { clientId: clean_(r[0]), business: clean_(r[1]), taskId: clean_(r[2]), task: clean_(r[3]),
+      month: monthKey_(r[4]), by: clean_(r[5]), date: iso_(r[6]) || now, row: i + 2 };
+    if (!k.clientId && !k.taskId) return; // blank row
+    var t = taskIds[k.taskId];
+    if (!k.month || !t || t.clientId !== k.clientId) { m.dirty.checks = true; return; } // leftover row
+    m.checks.push(k);
+  });
+
   return m;
 }
 
@@ -561,18 +915,60 @@ function saveModel_(m) {
       return m.accountants.slice().sort(function (a, b) { return a.toLowerCase().localeCompare(b.toLowerCase()); })
         .map(function (a) { return [txt_(a)]; });
     },
-    settings: function () { return [[RESTART_SETTING, txt_(m.restartStage)]]; }
+    settings: function () { return [[RESTART_SETTING, txt_(m.restartStage)]]; },
+    tasks: function () {
+      return m.tasks.map(function (t) { return [txt_(t.clientId), txt_(t.business), txt_(t.id), txt_(t.name)]; });
+    },
+    checks: function () {
+      return m.checks.slice().sort(function (a, b) {
+        return a.month < b.month ? -1 : a.month > b.month ? 1 : a.business.toLowerCase().localeCompare(b.business.toLowerCase());
+      }).map(checkRow_);
+    },
+    template: function () { return m.template.map(function (t) { return [txt_(t)]; }); }
   };
 
   TABLE_ORDER.forEach(function (k) {
     if (m.dirty[k]) writeTable_(m.ss, k, rows[k]());
   });
+  if (!m.dirty.checks) saveCheckChanges_(m);
   m.dirty = {};
+  m.checkAdds = [];
+  m.checkDels = [];
   bumpRev_();
 }
 
-function stateOf_(m) {
-  var notesBy = {}, historyBy = {};
+function checkRow_(k) {
+  return [txt_(k.clientId), txt_(k.business), txt_(k.taskId), txt_(k.task), txt_(k.month), txt_(k.by), date_(k.date)];
+}
+
+// Saves ticked and unticked boxes by adding and deleting single rows.
+function saveCheckChanges_(m) {
+  var sh = m.ss.getSheetByName(TABLES.checks.sheet);
+  var dels = m.checkDels.filter(Boolean).sort(function (a, b) { return b - a; });
+  dels.forEach(function (row) {
+    if (sh.getMaxRows() <= 2) sh.insertRowsAfter(sh.getMaxRows(), 1);
+    sh.deleteRow(row);
+  });
+  // A box ticked and unticked in the same save has no row yet and needs nothing.
+  var adds = m.checkAdds.filter(function (k) { return m.checks.indexOf(k) !== -1; });
+  if (!adds.length) return;
+  var start = sh.getLastRow() + 1;
+  var needed = start + adds.length - 1;
+  if (sh.getMaxRows() < needed) sh.insertRowsAfter(sh.getMaxRows(), needed - sh.getMaxRows());
+  sh.getRange(start, 1, adds.length, TABLES.checks.headers.length).setValues(adds.map(checkRow_));
+}
+
+// The page gets checkmarks for this year and last year; `allYears` is for backups.
+function stateOf_(m, allYears) {
+  var notesBy = {}, historyBy = {}, tasksBy = {}, checksBy = {};
+  var fromMonth = (new Date().getFullYear() - 1) + '-01';
+  m.tasks.forEach(function (t) {
+    (tasksBy[t.clientId] = tasksBy[t.clientId] || []).push({ id: t.id, name: t.name });
+  });
+  m.checks.forEach(function (k) {
+    if (!allYears && k.month < fromMonth) return;
+    (checksBy[k.clientId] = checksBy[k.clientId] || {})[k.taskId + '|' + k.month] = [k.by, k.date];
+  });
   m.notes.forEach(function (n) {
     (notesBy[n.clientId] = notesBy[n.clientId] || []).push({ id: n.id, date: n.date, author: n.author, text: n.text });
   });
@@ -586,13 +982,17 @@ function stateOf_(m) {
     stages: m.stages,
     accountants: m.accountants,
     restartStage: m.restartStage,
+    template: m.template,
+    checksFrom: allYears ? '' : fromMonth,
     clients: m.clients.map(function (c) {
       return {
         id: c.id, business: c.business, name: c.name, accountant: c.accountant, stage: c.stage,
         monthly: c.monthly, recurDay: c.recurDay, enteredAt: c.enteredAt, createdAt: c.createdAt,
         lastRecurAt: c.lastRecurAt, updatedAt: c.updatedAt, updatedBy: c.updatedBy,
         notes: notesBy[c.id] || [],
-        history: historyBy[c.id] || []
+        history: historyBy[c.id] || [],
+        tasks: tasksBy[c.id] || [],
+        checks: checksBy[c.id] || {}
       };
     })
   };
@@ -641,6 +1041,9 @@ function ensureSheets_(ss) {
       sh.getRange(2, 1, DEFAULT_STAGES.length, 1).setValues(DEFAULT_STAGES.map(function (s) { return [s]; }));
     }
     if (key === 'settings') sh.getRange(2, 1, 1, 2).setValues([[RESTART_SETTING, DEFAULT_STAGES[0]]]);
+    if (key === 'template') {
+      sh.getRange(2, 1, DEFAULT_TEMPLATE.length, 1).setValues(DEFAULT_TEMPLATE.map(function (s) { return [s]; }));
+    }
   });
   if (created) {
     // Remove the empty starter tab that comes with a new spreadsheet.
