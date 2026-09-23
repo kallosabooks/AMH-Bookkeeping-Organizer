@@ -1,6 +1,17 @@
 # Bookkeeping Client Tracker
 
-A simple board for tracking monthly bookkeeping clients through your workflow. It is one file, `index.html`, and needs no installation, server, or internet connection.
+A board for tracking monthly bookkeeping clients through your workflow. There are two versions:
+
+| | Shared team version | Single-computer version |
+|---|---|---|
+| Where | [`google-sheets/`](google-sheets/) | `index.html` |
+| Who can use it | Your whole team, each with their own Google sign-in | One person, in one browser |
+| Where the data lives | A Google Sheet you own | That browser |
+| Setup | About 10 minutes; see [google-sheets/SETUP.md](google-sheets/SETUP.md) | None; double-click the file |
+
+Both versions have the same board and features. The shared version also records who wrote each note and who moved each client.
+
+The rest of this page describes the single-computer version.
 
 ## How to open it
 
