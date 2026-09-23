@@ -32,6 +32,9 @@ If it starts with `{` or mentions `"payload"`, you copied GitHub's page data ins
 5. Next to **Files** on the left, click the **+** button and choose **HTML**. Name it exactly `Index` (Google adds the `.html` for you).
 6. Select everything in the new `Index.html` file, delete it, and paste in the contents of **`Index.html`** from this folder.
 7. Click the **Save** icon (the floppy disk) or press Ctrl+S (Cmd+S on a Mac).
+8. In the toolbar above the code, pick **setup** from the function drop-down (next to **Debug**), then click **▶ Run**.
+   - Google asks for permission. Choose your account. If it says **"Google hasn't verified this app"**, click **Advanced → Go to Bookkeeping Tracker (unsafe) → Allow**.
+   - The **Execution log** at the bottom should say **"Setup complete"**, and the new tabs appear in your Sheet. If it shows an error instead, copy the message and send it to whoever is helping you.
 
 ## Step 3: Publish it as a web app
 
@@ -40,7 +43,7 @@ If it starts with `{` or mentions `"payload"`, you copied GitHub's page data ins
 3. Fill in:
    - **Description:** `Bookkeeping Tracker`
    - **Execute as:** **User accessing the web app**
-   - **Who has access:** **Anyone with Google account**
+   - **Who has access:** **Anyone with Google account**. If your whole team uses your company's Google Workspace accounts, you can choose **Anyone within [your company]** instead.
 4. Click **Deploy**.
 5. Click **Authorize access** and choose your Google account.
 6. Google will say **"Google hasn't verified this app."** That's expected, because this is your own private script and not a public app. Click **Advanced**, then **Go to Bookkeeping Tracker (unsafe)**, then **Allow**.
@@ -97,6 +100,8 @@ To remove someone, remove them from the Sheet's Share list.
 The link stays the same, so your team doesn't need a new one.
 
 ## Troubleshooting
+
+- **"Google needs you to approve this app…" or other sign-in errors on the board**: this often happens when you're signed in to more than one Google account in the same browser. Open the link in an incognito/private window and sign in with only the account that has access to the Sheet. If you're the owner, also run **setup** from the editor (Step 2, item 8).
 
 - **"Syntax error … Unexpected token" when saving**: the pasted text isn't the code file. In the Apps Script editor, select everything in `Code.gs` (Ctrl+A), delete it, and paste again using the **Raw** button method at the top of this guide. Line 1 must be `/**` and line 2 must be ` * Bookkeeping Client Tracker (shared team version)`. Check `Index.html` the same way; its line 1 must be `<!DOCTYPE html>`.
 - **"You have view-only access…"**: the person is a Viewer on the Google Sheet. Change them to Editor under Share.

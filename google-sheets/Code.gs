@@ -58,6 +58,18 @@ function doGet() {
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
+/**
+ * Run this once from the Apps Script editor (choose "setup", click Run).
+ * It asks Google for permission and creates the tabs in the Sheet. Any
+ * problem appears in the Execution log with Google's full message.
+ */
+function setup() {
+  var m = loadModel_();
+  saveModel_(m);
+  console.log('Setup complete. Tabs: ' + m.ss.getSheets().map(function (s) { return s.getName(); }).join(', ') +
+    '. Signed in as: ' + (userEmail_() || 'unknown'));
+}
+
 // Lets open boards notice when someone edits the sheet by hand.
 function onEdit() {
   try { bumpRev_(); } catch (e) { /* ignore */ }
@@ -442,12 +454,18 @@ function bumpRev_() {
 }
 
 function friendlyError_(e) {
-  var msg = (e && e.message) || String(e);
-  if (/permission|access denied|not have access|authorization/i.test(msg)) {
-    msg = 'You have view-only access. Ask the owner to share the Google Sheet with you as an Editor.';
-  } else if (/lock/i.test(msg) && /timeout|timed out/i.test(msg)) {
+  var raw = (e && e.message) || String(e);
+  var msg = raw;
+  if (/authoriz/i.test(raw)) {
+    msg = 'Google needs you to approve this app. If you are signed in to more than one Google account, ' +
+      'open the link in an incognito/private window and sign in with only the account that has the Sheet. ' +
+      'The Sheet\'s owner can also open Extensions → Apps Script, choose "setup" and click Run.';
+  } else if (/do not have permission|don't have permission|access denied|not have access/i.test(raw)) {
+    msg = 'You don\'t have edit access to the Google Sheet. Ask the owner to share it with you as an Editor.';
+  } else if (/lock/i.test(raw) && /timeout|timed out/i.test(raw)) {
     msg = 'The tracker is busy right now. Please try again in a moment.';
   }
+  if (msg !== raw) msg += ' (Details from Google: ' + raw + ')';
   return new Error(msg);
 }
 
