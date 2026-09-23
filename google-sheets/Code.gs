@@ -457,6 +457,10 @@ function friendlyError_(e) {
 
 function loadModel_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) {
+    throw new Error('This script is not attached to a Google Sheet. Open your Google Sheet, choose ' +
+      'Extensions → Apps Script, and paste the code there (see SETUP.md).');
+  }
   ensureSheets_(ss);
   var m = { ss: ss, dirty: {} };
   var now = nowIso_();
