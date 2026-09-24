@@ -86,6 +86,7 @@ For monthly clients, each month has its own card on the board, labeled with the 
 
 - **On each client's restart day** (the 1st by default), a new card for **the month just ended** appears in "Bookkeeping to Start". For example, on September 1 a card for August appears.
 - **Unfinished months stay where they are.** If July is still in "Waiting on Answers from Client", it stays there while August starts. A client with more than one month on the board has an orange month label.
+- **The new month waits if last month hasn't started yet.** If July is still sitting in "Bookkeeping to Start" on the restart day, August isn't added yet. It appears as soon as the July card is moved on to the next stage.
 - **Finished months clear themselves.** When a new month starts, that client's cards sitting in the last stage (Complete) come off the board. They stay in the **Board** tab of the Sheet and in the client's stage history.
 - **Inside a client**, the **Details** tab lists that client's months on the board, with an **Open** button for each. **+ Add a month** puts another month on the board by hand, for example to start early. **Remove this month from board** takes one off; the client, checklist and notes are kept.
 - **Clients that aren't monthly** have a single card with no month label.

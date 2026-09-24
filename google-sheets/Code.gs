@@ -661,25 +661,37 @@ function lastOccurrence_(day, now) {
   return d;
 }
 
-function recurrenceDue_(c, now) {
+function recurrenceDue_(m, c, now) {
   if (!c.monthly) return false;
   if (!c.lastRecurAt) return true;
-  return new Date(c.lastRecurAt) < lastOccurrence_(c.recurDay, now);
+  if (new Date(c.lastRecurAt) >= lastOccurrence_(c.recurDay, now)) return false;
+  return !waitingToStart_(m, c, workMonthKey_(lastOccurrence_(c.recurDay, now)));
+}
+
+// True while an earlier month for this client is still sitting untouched in
+// the restart stage. The next month is held back until that card moves on,
+// then added straight away.
+function waitingToStart_(m, c, month) {
+  return m.cards.some(function (k) {
+    return k.clientId === c.id && k.onBoard && k.stage === m.restartStage && k.month < month;
+  });
 }
 
 function recurrencesDue_(m) {
   var now = new Date();
-  return m.clients.some(function (c) { return recurrenceDue_(c, now); });
+  return m.clients.some(function (c) { return recurrenceDue_(m, c, now); });
 }
 
 // On the restart day a new card appears for the month just ended (a month's
 // books are done during the next one), e.g. on Sept 1 for August. Earlier
 // months stay where they are until finished; finished ones are cleared away.
+// If last month's card hasn't left the restart stage yet, the new one waits
+// for it (see waitingToStart_).
 function runRecurrences_(m) {
   var now = new Date();
   var finalStage = m.stages[m.stages.length - 1];
   m.clients.forEach(function (c) {
-    if (!recurrenceDue_(c, now)) return;
+    if (!recurrenceDue_(m, c, now)) return;
     if (c.lastRecurAt) {
       var month = workMonthKey_(lastOccurrence_(c.recurDay, now));
       var existing = m.cards.filter(function (k) { return k.clientId === c.id && k.month === month; })[0];
