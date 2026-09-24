@@ -391,6 +391,14 @@
   .checklist input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); cursor: pointer; vertical-align: middle; }
   .checklist input:disabled { cursor: default; }
   .checklist-empty { padding: 18px; text-align: center; color: var(--muted); }
+  .month-title { font-weight: 700; font-size: 16px; }
+  .year-nav { display: inline-flex; align-items: center; gap: 8px; margin-left: 8px; }
+  .year-nav[hidden] { display: none; }
+  table.checklist.single td { text-align: left; padding: 8px 10px; }
+  table.checklist.single td.box { width: 36px; text-align: center; }
+  table.checklist.single td.name label { cursor: pointer; display: block; }
+  table.checklist.single td.who { width: 200px; color: var(--muted); font-size: 13px; white-space: nowrap; }
+  table.checklist.single tr.done td.name { color: var(--muted); }
   .checklist-empty .btn { margin-top: 10px; }
   .task-editor { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; background: #fbfcfe; }
   .task-editor h3 { margin: 0 0 10px; font-size: 14px; }
@@ -1198,7 +1206,7 @@
     function refresh() {
       daySel.disabled = !box.checked;
       hint.textContent = box.checked
-        ? 'On the ' + ordinal(+daySel.value) + ' of every month, a card for the month just ended is added to "' + restartStage() + '" (e.g. on Sept ' + ordinal(+daySel.value) + ', one for August). Earlier months stay where they are until finished.'
+        ? 'On the ' + ordinal(+daySel.value) + ' of every month, a card for the month just ended is added to "' + restartStage() + '" (e.g. on Sept ' + ordinal(+daySel.value) + ', one for August). Earlier months stay where they are until finished. If last month is still in "' + restartStage() + '", the new card waits until it moves on.'
         : 'Turn this on for clients whose books you do every month.';
     }
     box.addEventListener('change', function () { refresh(); if (onChange) onChange({ monthly: box.checked }); });
@@ -1512,6 +1520,19 @@
       editingTasks = !editingTasks;
       renderChecklist();
     } });
+    // The checklist normally shows just the card's month; "Whole year" shows
+    // the Jan–Dec grid. The choice is remembered on this computer.
+    var VIEW_KEY = 'bookkeeping-tracker-checklist-view';
+    var wholeYear = false;
+    try { wholeYear = localStorage.getItem(VIEW_KEY) === 'year'; } catch (e) { /* ignore */ }
+    var monthTitle = el('span', { class: 'month-title' });
+    var yearNav = el('span', { class: 'year-nav' }, prevYearBtn, yearLabel, nextYearBtn);
+    var viewBtn = el('button', { class: 'btn small', type: 'button', onclick: function () {
+      wholeYear = !wholeYear;
+      year = cardMonth(curCard()).year;
+      try { localStorage.setItem(VIEW_KEY, wholeYear ? 'year' : 'month'); } catch (e) { /* ignore */ }
+      renderChecklist();
+    } });
     var tableWrap = el('div');
     var taskEditor = el('div');
 
@@ -1537,10 +1558,15 @@
 
     function renderTable() {
       var c = cur();
+      var wm = cardMonth(curCard());
+      if (!wholeYear) year = wm.year;
       tableWrap.textContent = '';
       yearLabel.textContent = year;
       nextYearBtn.disabled = year >= thisYear;
+      yearNav.hidden = !wholeYear;
+      viewBtn.textContent = wholeYear ? 'Just ' + MONTH_LONG[wm.index] : 'Whole year';
       editTasksBtn.textContent = editingTasks ? 'Done editing' : 'Edit items';
+      monthTitle.textContent = '';
       if (!c.tasks.length) {
         tableWrap.appendChild(el('div', { class: 'checklist-wrap' }, el('div', { class: 'checklist-empty' },
           el('div', { text: 'This client doesn\'t have a checklist yet.' }),
@@ -1562,7 +1588,9 @@
         }, showError);
         return;
       }
-      var wm = cardMonth(curCard());
+      var doneNow = c.tasks.filter(function (t) { return checks[t.id + '|' + wm.key]; }).length;
+      monthTitle.textContent = MONTH_LONG[wm.index] + ' ' + wm.year + ' · ' + doneNow + ' of ' + c.tasks.length + ' done';
+      if (!wholeYear) { renderMonthList(c, checks, wm); return; }
       var head = el('tr', {}, el('th', { class: 'task', scope: 'col', text: 'Item' }));
       MONTH_SHORT.forEach(function (label, mi) {
         var key = monthKey(year, mi);
@@ -1596,6 +1624,32 @@
         body.appendChild(row);
       });
       var table = el('table', { class: 'checklist' }, el('thead', {}, head), body);
+      table.addEventListener('change', function (e) {
+        var box = e.target;
+        if (box.type !== 'checkbox') return;
+        toggleCheck(box.getAttribute('data-task'), box.getAttribute('data-month'), box.checked);
+      });
+      tableWrap.appendChild(el('div', { class: 'checklist-wrap' }, table));
+    }
+
+    // Just the card's month: each item with its checkbox and who ticked it.
+    function renderMonthList(c, checks, wm) {
+      var body = el('tbody');
+      c.tasks.forEach(function (t, i) {
+        var isTemp = /^tmp-/.test(t.id);
+        var info = checks[t.id + '|' + wm.key];
+        var boxId = 'chk-' + i;
+        var box = el('input', { type: 'checkbox', id: boxId, checked: !!info, disabled: isTemp });
+        box.setAttribute('data-task', t.id);
+        box.setAttribute('data-month', wm.key);
+        body.appendChild(el('tr', { class: info ? 'done' : '' },
+          el('td', { class: 'box' }, box),
+          el('td', { class: 'name' }, el('label', { for: boxId, text: t.name })),
+          el('td', { class: 'who', text: info ? (info[0] === 'Imported' ? 'Imported' : shortName(info[0])) +
+            (info[1] ? ' · ' + fmtDate(info[1]) : '') : '' })
+        ));
+      });
+      var table = el('table', { class: 'checklist single' }, body);
       table.addEventListener('change', function (e) {
         var box = e.target;
         if (box.type !== 'checkbox') return;
@@ -1708,9 +1762,10 @@
     detailsPane.appendChild(recur.node);
 
     checklistPane.appendChild(el('div', { class: 'checklist-bar' },
-      prevYearBtn, yearLabel, nextYearBtn,
-      el('span', { class: 'muted', text: found.k.month ? 'Highlighted: ' + monthLabel(found.k.month, true) + ', the month of the card you opened.' : 'Highlighted: last month.' }),
+      monthTitle,
+      yearNav,
       el('span', { class: 'spacer' }),
+      viewBtn,
       editTasksBtn
     ));
     checklistPane.appendChild(tableWrap);

@@ -93,11 +93,11 @@ For monthly clients, each month has its own card on the board, labeled with the 
 
 ## Monthly checklists
 
-Each client has a **Monthly Checklist** tab (open a client, then click the tab). It's a grid with the client's accounts and tasks down the side and Jan–Dec across the top, like a per-client checklist spreadsheet.
+Each client has a **Monthly Checklist** tab (open a client's card, then click the tab). It shows **just the month of the card you opened**, for example "August 2026 · 10 of 16 done", with the client's accounts and tasks listed down the page.
 
-- **Ticking boxes:** tick a box when that item is done for that month. Hover over a ticked box to see who ticked it and when.
-- **Moving between years:** use the ‹ › arrows next to the year.
-- **The highlighted month** is the month of the card you opened. Opening a client's July card highlights July, and each card shows that month's progress, for example **10/16 done**.
+- **Ticking items:** tick an item when it's done for that month, or click its name. Next to each ticked item you can see who ticked it and when.
+- **Each card shows its month's progress** on the board, for example **10/16 done**.
+- **Looking back:** click **Whole year** to see all twelve months side by side, like a per-client checklist spreadsheet, with ‹ › to change the year. Click **Just [month]** to go back. The tracker remembers your choice on your computer.
 - **Changing a client's items:** click **Edit items** to add accounts (such as "Van 003"), rename, reorder or remove them. Each client's list is its own.
 - **Checklist Template** (button at the top of the board): the starting list for new clients. Changing it doesn't change existing clients. It can also give the template to every client that doesn't have a checklist yet.
 
