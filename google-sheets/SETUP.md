@@ -80,13 +80,23 @@ To remove someone, remove them from the Sheet's Share list.
 
 ---
 
+## One card per month
+
+For monthly clients, each month has its own card on the board, labeled with the month (for example **Aug 2026**). That way a client can be behind on one month and starting the next at the same time.
+
+- **On each client's restart day** (the 1st by default), a new card for **the month just ended** appears in "Bookkeeping to Start". For example, on September 1 a card for August appears.
+- **Unfinished months stay where they are.** If July is still in "Waiting on Answers from Client", it stays there while August starts. A client with more than one month on the board has an orange month label.
+- **Finished months clear themselves.** When a new month starts, that client's cards sitting in the last stage (Complete) come off the board. They stay in the **Board** tab of the Sheet and in the client's stage history.
+- **Inside a client**, the **Details** tab lists that client's months on the board, with an **Open** button for each. **+ Add a month** puts another month on the board by hand, for example to start early. **Remove this month from board** takes one off; the client, checklist and notes are kept.
+- **Clients that aren't monthly** have a single card with no month label.
+
 ## Monthly checklists
 
 Each client has a **Monthly Checklist** tab (open a client, then click the tab). It's a grid with the client's accounts and tasks down the side and Jan–Dec across the top, like a per-client checklist spreadsheet.
 
 - **Ticking boxes:** tick a box when that item is done for that month. Hover over a ticked box to see who ticked it and when.
 - **Moving between years:** use the ‹ › arrows next to the year.
-- **The highlighted month** is the one being worked on, which is last month, since a month's books are done during the next one. Board cards show that month's progress, for example **Aug 10/16**.
+- **The highlighted month** is the month of the card you opened. Opening a client's July card highlights July, and each card shows that month's progress, for example **10/16 done**.
 - **Changing a client's items:** click **Edit items** to add accounts (such as "Van 003"), rename, reorder or remove them. Each client's list is its own.
 - **Checklist Template** (button at the top of the board): the starting list for new clients. Changing it doesn't change existing clients. It can also give the template to every client that doesn't have a checklist yet.
 
@@ -111,7 +121,7 @@ What the import does:
 If you set up the tracker before checklists were added:
 
 1. Paste the new `Code.gs` and `Index.html` over the old ones, using the **Raw** method at the top of this guide, and **Save**.
-2. Choose **setup** in the function drop-down and click **▶ Run**. This adds the new tabs (Checklist Tasks, Checklist and Checklist Template) and asks for any new permission. The importer needs permission to open your other spreadsheet.
+2. Choose **setup** in the function drop-down and click **▶ Run**. This adds any new tabs (such as **Board**, Checklist Tasks, Checklist and Checklist Template) and asks for any new permission. The importer needs permission to open your other spreadsheet. When month cards are added, each existing client gets one card for last month, in the stage it's in now.
 3. Click **Deploy → Manage deployments →** pencil icon ✏️ **→ Version: New version → Deploy**.
 
 ## Good to know

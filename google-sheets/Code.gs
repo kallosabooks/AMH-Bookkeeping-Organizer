@@ -33,9 +33,17 @@ var TABLES = {
     widths: { 3: 200, 5: 180, 6: 480 },
     wrapCol: 6
   },
+  // One card per client per month on the board. "On Board" is FALSE once a
+  // finished month has been cleared away (it stays here as history).
+  cards: {
+    sheet: 'Board',
+    headers: ['Card ID', 'Client ID', 'Business Name', 'Month', 'Stage', 'Entered Stage', 'On Board'],
+    dateCols: [6],
+    widths: { 3: 220, 5: 190 }
+  },
   history: {
     sheet: 'Stage History',
-    headers: ['Client ID', 'Business Name', 'Stage', 'Date', 'Changed By', 'Monthly Restart'],
+    headers: ['Client ID', 'Business Name', 'Stage', 'Date', 'Changed By', 'Monthly Restart', 'Month'],
     dateCols: [4],
     widths: { 2: 200, 3: 170, 5: 180 }
   },
@@ -57,7 +65,10 @@ var TABLES = {
   },
   template: { sheet: 'Checklist Template', headers: ['Task'], widths: { 1: 260 } }
 };
-var TABLE_ORDER = ['clients', 'notes', 'history', 'stages', 'accountants', 'settings', 'tasks', 'checks', 'template'];
+var TABLE_ORDER = ['clients', 'cards', 'notes', 'history', 'stages', 'accountants', 'settings', 'tasks', 'checks',
+  'template'];
+// Bump when a tab gains a column, so existing sheets get the new header.
+var SCHEMA_VERSION = '3';
 var RESTART_SETTING = 'Monthly clients restart in';
 var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August',
   'September', 'October', 'November', 'December'];
@@ -189,17 +200,15 @@ var OPS = {
       business: required_(a.business, 'Business Name'),
       name: clean_(a.name),
       accountant: accountantName_(m, a.accountant),
-      stage: a.stage ? stageName_(m, a.stage) : m.stages[0],
       monthly: !!a.monthly,
       recurDay: day_(a.recurDay),
-      enteredAt: now,
       createdAt: now,
       lastRecurAt: a.monthly ? now : '',
       updatedAt: now,
       updatedBy: me
     };
     m.clients.push(c);
-    m.history.push({ clientId: c.id, business: c.business, stage: c.stage, date: now, by: me, auto: false });
+    addCard_(m, c, monthKey_(a.month), a.stage ? stageName_(m, a.stage) : m.stages[0], me, false);
     if (clean_(a.note)) addNoteRow_(m, c, a.note, me);
     m.template.forEach(function (name) { addTaskRow_(m, c, name); });
     m.dirty.clients = m.dirty.history = true;
@@ -215,7 +224,8 @@ var OPS = {
         m.history.forEach(function (h) { if (h.clientId === c.id) h.business = b; });
         m.tasks.forEach(function (t) { if (t.clientId === c.id) t.business = b; });
         m.checks.forEach(function (k) { if (k.clientId === c.id) k.business = b; });
-        m.dirty.notes = m.dirty.history = m.dirty.tasks = m.dirty.checks = true;
+        m.cards.forEach(function (k) { if (k.clientId === c.id) k.business = b; });
+        m.dirty.notes = m.dirty.history = m.dirty.tasks = m.dirty.checks = m.dirty.cards = true;
       }
     }
     if ('name' in a) c.name = clean_(a.name);
@@ -229,9 +239,31 @@ var OPS = {
     touch_(m, c, me);
   },
 
-  moveClient: function (m, a, me) {
-    var c = client_(m, a.id);
-    setStage_(m, c, stageName_(m, a.stage), me, false);
+  moveCard: function (m, a, me) {
+    var card = card_(m, a.id);
+    setCardStage_(m, card, stageName_(m, a.stage), me, false);
+  },
+
+  // Puts a month on the board for a client (or brings back one that was cleared).
+  addCard: function (m, a, me) {
+    var c = client_(m, a.clientId);
+    var month = monthKey_(a.month);
+    if (!month) throw new Error('Please choose a month.');
+    var existing = m.cards.filter(function (k) { return k.clientId === c.id && k.month === month; })[0];
+    if (existing && existing.onBoard) throw new Error(monthLabel_(month) + ' is already on the board for ' + c.business + '.');
+    if (existing) {
+      existing.onBoard = true;
+      m.dirty.cards = true;
+      return;
+    }
+    addCard_(m, c, month, m.restartStage, me, false);
+  },
+
+  // Takes a month off the board. It stays in the Board tab and the history.
+  removeCard: function (m, a) {
+    var card = card_(m, a.id);
+    card.onBoard = false;
+    m.dirty.cards = true;
   },
 
   deleteClient: function (m, a) {
@@ -241,7 +273,8 @@ var OPS = {
     m.history = m.history.filter(function (h) { return h.clientId !== c.id; });
     m.tasks = m.tasks.filter(function (t) { return t.clientId !== c.id; });
     m.checks = m.checks.filter(function (k) { return k.clientId !== c.id; });
-    m.dirty.clients = m.dirty.notes = m.dirty.history = m.dirty.tasks = m.dirty.checks = true;
+    m.cards = m.cards.filter(function (k) { return k.clientId !== c.id; });
+    m.dirty.clients = m.dirty.notes = m.dirty.history = m.dirty.tasks = m.dirty.checks = m.dirty.cards = true;
   },
 
   addNote: function (m, a, me) {
@@ -268,9 +301,9 @@ var OPS = {
     var clash = findName_(m.stages, to);
     if (clash && clash !== from) throw new Error('There is already a stage called "' + to + '".');
     m.stages = m.stages.map(function (s) { return s === from ? to : s; });
-    m.clients.forEach(function (c) { if (c.stage === from) c.stage = to; });
+    m.cards.forEach(function (k) { if (k.stage === from) k.stage = to; });
     if (m.restartStage === from) m.restartStage = to;
-    m.dirty.stages = m.dirty.clients = m.dirty.settings = true;
+    m.dirty.stages = m.dirty.cards = m.dirty.settings = true;
   },
 
   moveStage: function (m, a) {
@@ -288,7 +321,7 @@ var OPS = {
     if (m.stages.length < 2) throw new Error('You need at least one stage.');
     var i = m.stages.indexOf(name);
     var fallback = m.stages[i > 0 ? i - 1 : 1];
-    m.clients.forEach(function (c) { if (c.stage === name) setStage_(m, c, fallback, me, false); });
+    m.cards.forEach(function (k) { if (k.stage === name) setCardStage_(m, k, fallback, me, false); });
     m.stages.splice(i, 1);
     if (m.restartStage === name) m.restartStage = fallback;
     m.dirty.stages = m.dirty.settings = true;
@@ -335,6 +368,7 @@ var OPS = {
     m.history = [];
     m.tasks = [];
     m.checks = [];
+    m.cards = [];
     if (Array.isArray(d.template)) m.template = uniqueNames_(d.template);
     var now = nowIso_();
     (Array.isArray(d.clients) ? d.clients : []).forEach(function (x) {
@@ -346,16 +380,22 @@ var OPS = {
         business: business,
         name: clean_(x.business) ? clean_(x.name) : '',
         accountant: accountantName_(m, x.accountant),
-        stage: findName_(stages, x.stage) || stages[0],
         monthly: !!x.monthly,
         recurDay: day_(x.recurDay),
-        enteredAt: iso_(x.enteredAt) || now,
         createdAt: iso_(x.createdAt) || iso_(x.enteredAt) || now,
         lastRecurAt: iso_(x.lastRecurAt) || (x.monthly ? now : ''),
         updatedAt: now,
         updatedBy: me
       };
       m.clients.push(c);
+      var cards = Array.isArray(x.cards) && x.cards.length ? x.cards
+        : [{ month: x.month || (x.monthly ? workMonthKey_(new Date()) : ''), stage: x.stage, enteredAt: x.enteredAt, onBoard: true }];
+      cards.forEach(function (k) {
+        if (!k) return;
+        m.cards.push({ id: newId_(), clientId: c.id, business: c.business, month: monthKey_(k.month),
+          stage: findName_(stages, k.stage) || stages[0], enteredAt: iso_(k.enteredAt) || now,
+          onBoard: k.onBoard !== false });
+      });
       (Array.isArray(x.notes) ? x.notes : []).forEach(function (n) {
         if (!n || !clean_(n.text)) return;
         m.notes.push({ id: newId_(), clientId: c.id, business: c.business, date: iso_(n.date) || now,
@@ -363,8 +403,8 @@ var OPS = {
       });
       (Array.isArray(x.history) ? x.history : []).forEach(function (h) {
         if (!h || !iso_(h.date)) return;
-        m.history.push({ clientId: c.id, business: c.business, stage: clean_(h.stage) || c.stage,
-          date: iso_(h.date), by: clean_(h.by), auto: !!h.auto });
+        m.history.push({ clientId: c.id, business: c.business, stage: clean_(h.stage) || stages[0],
+          date: iso_(h.date), by: clean_(h.by), auto: !!h.auto, month: monthKey_(h.month) });
       });
       var taskIds = {};
       (Array.isArray(x.tasks) ? x.tasks : []).forEach(function (t) {
@@ -515,11 +555,11 @@ var OPS = {
         summary.matched.push(c.business);
       } else {
         var now = nowIso_();
-        c = { id: newId_(), business: business, name: '', accountant: '', stage: m.restartStage, monthly: true,
-          recurDay: 1, enteredAt: now, createdAt: now, lastRecurAt: now, updatedAt: now, updatedBy: me };
+        c = { id: newId_(), business: business, name: '', accountant: '', monthly: true,
+          recurDay: 1, createdAt: now, lastRecurAt: now, updatedAt: now, updatedBy: me };
         m.clients.push(c);
-        m.history.push({ clientId: c.id, business: c.business, stage: c.stage, date: now, by: me, auto: false });
-        m.dirty.clients = m.dirty.history = true;
+        addCard_(m, c, workMonthKey_(new Date()), m.restartStage, me, false);
+        m.dirty.clients = true;
         summary.created.push(business);
       }
 
@@ -632,18 +672,26 @@ function recurrencesDue_(m) {
   return m.clients.some(function (c) { return recurrenceDue_(c, now); });
 }
 
+// On the restart day a new card appears for the month just ended (a month's
+// books are done during the next one), e.g. on Sept 1 for August. Earlier
+// months stay where they are until finished; finished ones are cleared away.
 function runRecurrences_(m) {
   var now = new Date();
   var finalStage = m.stages[m.stages.length - 1];
   m.clients.forEach(function (c) {
     if (!recurrenceDue_(c, now)) return;
-    if (c.lastRecurAt && c.stage !== m.restartStage) {
-      var occ = lastOccurrence_(c.recurDay, now);
-      if (c.stage !== finalStage) {
-        addNoteRow_(m, c, 'Automatic monthly restart for ' + MONTHS[occ.getMonth()] + ' ' + occ.getFullYear() +
-          '. This client was still in "' + c.stage + '", so check that the previous month was finished.', 'Automatic');
+    if (c.lastRecurAt) {
+      var month = workMonthKey_(lastOccurrence_(c.recurDay, now));
+      var existing = m.cards.filter(function (k) { return k.clientId === c.id && k.month === month; })[0];
+      if (!existing) {
+        m.cards.forEach(function (k) {
+          if (k.clientId === c.id && k.onBoard && k.stage === finalStage && k.month < month) {
+            k.onBoard = false;
+            m.dirty.cards = true;
+          }
+        });
+        addCard_(m, c, month, m.restartStage, 'Automatic', true);
       }
-      setStage_(m, c, m.restartStage, 'Automatic', true);
     }
     c.lastRecurAt = now.toISOString();
     m.dirty.clients = true;
@@ -654,14 +702,42 @@ function runRecurrences_(m) {
 // Model helpers
 // ============================================================================
 
-function setStage_(m, c, stage, by, auto) {
-  if (c.stage === stage) return;
+function addCard_(m, c, month, stage, by, auto) {
   var now = nowIso_();
-  c.stage = stage;
-  c.enteredAt = now;
-  m.history.push({ clientId: c.id, business: c.business, stage: stage, date: now, by: by, auto: !!auto });
+  var card = { id: newId_(), clientId: c.id, business: c.business, month: month || '', stage: stage,
+    enteredAt: now, onBoard: true };
+  m.cards.push(card);
+  m.history.push({ clientId: c.id, business: c.business, stage: stage, date: now, by: by, auto: !!auto,
+    month: card.month });
+  m.dirty.cards = m.dirty.history = true;
+  return card;
+}
+
+function setCardStage_(m, card, stage, by, auto) {
+  if (card.stage === stage) return;
+  var now = nowIso_();
+  card.stage = stage;
+  card.enteredAt = now;
+  m.history.push({ clientId: card.clientId, business: card.business, stage: stage, date: now, by: by, auto: !!auto,
+    month: card.month });
+  var c = client_(m, card.clientId);
   touch_(m, c, by);
-  m.dirty.history = true;
+  m.dirty.history = m.dirty.cards = true;
+}
+
+function card_(m, id) {
+  for (var i = 0; i < m.cards.length; i++) if (m.cards[i].id === id) return m.cards[i];
+  throw new Error('That card was removed by someone else. The board has been refreshed.');
+}
+
+// The month whose books are worked on during the month of `date`.
+function workMonthKey_(date) {
+  return monthKey_(new Date(date.getFullYear(), date.getMonth() - 1, 1));
+}
+
+function monthLabel_(key) {
+  var parts = key.split('-');
+  return MONTHS[+parts[1] - 1] + ' ' + parts[0];
 }
 
 function addNoteRow_(m, c, text, author) {
@@ -866,8 +942,30 @@ function loadModel_() {
 
   m.history = readRows_(ss, 'history').map(function (r) {
     return { clientId: clean_(r[0]), business: clean_(r[1]), stage: clean_(r[2]), date: iso_(r[3]),
-      by: clean_(r[4]), auto: bool_(r[5]) };
+      by: clean_(r[4]), auto: bool_(r[5]), month: monthKey_(r[6]) };
   }).filter(function (h) { return h.date && ids[h.clientId]; });
+
+  var cardIds = {}, hasCard = {};
+  m.cards = readRows_(ss, 'cards').map(function (r) {
+    return { id: clean_(r[0]), clientId: clean_(r[1]), business: clean_(r[2]), month: monthKey_(r[3]),
+      stage: name_(r[4]), enteredAt: iso_(r[5]), onBoard: r[6] === '' || r[6] == null ? true : bool_(r[6]) };
+  }).filter(function (k) { return ids[k.clientId]; });
+  m.cards.forEach(function (k) {
+    if (!k.id || cardIds[k.id]) { k.id = newId_(); m.dirty.cards = true; }
+    cardIds[k.id] = true;
+    hasCard[k.clientId] = true;
+    var stage = findName_(m.stages, k.stage) || m.stages[0];
+    if (stage !== k.stage) { k.stage = stage; m.dirty.cards = true; }
+    if (!k.enteredAt) { k.enteredAt = now; m.dirty.cards = true; }
+  });
+  // Clients from before month cards existed (or added by hand in the sheet)
+  // get one card, in the stage the Clients tab shows.
+  m.clients.forEach(function (c) {
+    if (hasCard[c.id]) return;
+    m.cards.push({ id: newId_(), clientId: c.id, business: c.business,
+      month: c.monthly ? workMonthKey_(new Date()) : '', stage: c.stage, enteredAt: c.enteredAt, onBoard: true });
+    m.dirty.cards = true;
+  });
 
   m.template = uniqueNames_(readRows_(ss, 'template').map(function (r) { return r[0]; }));
 
@@ -897,6 +995,17 @@ function saveModel_(m) {
   if (!isDirty_(m)) return;
   var stageOrder = {};
   m.stages.forEach(function (s, i) { stageOrder[s] = i; });
+  // The Clients tab shows the stage of each client's latest month on the board.
+  if (m.dirty.cards) m.dirty.clients = true;
+  var latest = {};
+  m.cards.forEach(function (k) {
+    if (!k.onBoard) return;
+    var cur = latest[k.clientId];
+    if (!cur || k.month > cur.month || (k.month === cur.month && k.enteredAt > cur.enteredAt)) latest[k.clientId] = k;
+  });
+  m.clients.forEach(function (c) {
+    if (latest[c.id]) { c.stage = latest[c.id].stage; c.enteredAt = latest[c.id].enteredAt; }
+  });
   var byDate = function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; };
 
   var rows = {
@@ -917,7 +1026,16 @@ function saveModel_(m) {
     },
     history: function () {
       return m.history.slice().sort(byDate).map(function (h) {
-        return [txt_(h.clientId), txt_(h.business), txt_(h.stage), date_(h.date), txt_(h.by), !!h.auto];
+        return [txt_(h.clientId), txt_(h.business), txt_(h.stage), date_(h.date), txt_(h.by), !!h.auto, txt_(h.month)];
+      });
+    },
+    cards: function () {
+      return m.cards.slice().sort(function (a, b) {
+        return (b.onBoard - a.onBoard) || (stageOrder[a.stage] - stageOrder[b.stage]) ||
+          a.business.toLowerCase().localeCompare(b.business.toLowerCase()) || (a.month < b.month ? -1 : 1);
+      }).map(function (k) {
+        return [txt_(k.id), txt_(k.clientId), txt_(k.business), txt_(k.month), txt_(k.stage), date_(k.enteredAt),
+          !!k.onBoard];
       });
     },
     stages: function () { return m.stages.map(function (s) { return [txt_(s)]; }); },
@@ -982,8 +1100,14 @@ function stateOf_(m, allYears) {
   m.notes.forEach(function (n) {
     (notesBy[n.clientId] = notesBy[n.clientId] || []).push({ id: n.id, date: n.date, author: n.author, text: n.text });
   });
+  var cardsBy = {};
   m.history.forEach(function (h) {
-    (historyBy[h.clientId] = historyBy[h.clientId] || []).push({ stage: h.stage, date: h.date, by: h.by, auto: h.auto });
+    (historyBy[h.clientId] = historyBy[h.clientId] || []).push({ stage: h.stage, date: h.date, by: h.by, auto: h.auto,
+      month: h.month });
+  });
+  m.cards.forEach(function (k) {
+    (cardsBy[k.clientId] = cardsBy[k.clientId] || []).push({ id: k.id, month: k.month, stage: k.stage,
+      enteredAt: k.enteredAt, onBoard: k.onBoard });
   });
   return {
     rev: getRev(),
@@ -996,8 +1120,9 @@ function stateOf_(m, allYears) {
     checksFrom: allYears ? '' : fromMonth,
     clients: m.clients.map(function (c) {
       return {
-        id: c.id, business: c.business, name: c.name, accountant: c.accountant, stage: c.stage,
-        monthly: c.monthly, recurDay: c.recurDay, enteredAt: c.enteredAt, createdAt: c.createdAt,
+        id: c.id, business: c.business, name: c.name, accountant: c.accountant,
+        monthly: c.monthly, recurDay: c.recurDay, createdAt: c.createdAt,
+        cards: cardsBy[c.id] || [],
         lastRecurAt: c.lastRecurAt, updatedAt: c.updatedAt, updatedBy: c.updatedBy,
         notes: notesBy[c.id] || [],
         history: historyBy[c.id] || [],
@@ -1056,9 +1181,21 @@ function sheet_(ss, name) {
 
 function ensureSheets_(ss) {
   var created = false;
+  var props = PropertiesService.getScriptProperties();
+  var upgrade = props.getProperty('schema') !== SCHEMA_VERSION;
   TABLE_ORDER.forEach(function (key) {
     var t = TABLES[key];
-    if (sheet_(ss, t.sheet)) return;
+    var existing = sheet_(ss, t.sheet);
+    if (existing) {
+      // Add headers for columns introduced by an update.
+      if (upgrade) {
+        var head = existing.getRange(1, 1, 1, t.headers.length).getValues()[0];
+        if (head.some(function (h, i) { return !clean_(h) && t.headers[i]; })) {
+          existing.getRange(1, 1, 1, t.headers.length).setValues([t.headers]).setFontWeight('bold').setBackground('#e8eef8');
+        }
+      }
+      return;
+    }
     var sh = ss.insertSheet(t.sheet);
     created = true;
     sh.getRange(1, 1, 1, t.headers.length).setValues([t.headers]).setFontWeight('bold').setBackground('#e8eef8');
@@ -1076,6 +1213,9 @@ function ensureSheets_(ss) {
       sh.getRange(2, 1, DEFAULT_TEMPLATE.length, 1).setValues(DEFAULT_TEMPLATE.map(function (s) { return [s]; }));
     }
   });
+  if (upgrade) {
+    try { props.setProperty('schema', SCHEMA_VERSION); } catch (e) { /* view-only users */ }
+  }
   if (created) {
     // Remove the empty starter tab that comes with a new spreadsheet.
     ['Sheet1', 'Sheet 1'].forEach(function (n) {

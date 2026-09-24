@@ -187,6 +187,20 @@
   .card-biz { font-weight: 650; word-break: break-word; }
   .card-name { color: var(--muted); font-size: 13.5px; margin-top: 1px; word-break: break-word; }
   .recur-icon { color: var(--accent); font-weight: 700; flex: none; cursor: help; }
+  .month-chip {
+    flex: none; font-size: 12px; font-weight: 700; white-space: nowrap;
+    padding: 1px 8px; border-radius: 6px;
+    background: var(--accent-soft, #e8effd); color: var(--accent);
+  }
+  .month-chip.multi { background: #fff1e0; color: #b45309; }
+  .months-list { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .months-list li {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px;
+  }
+  .months-list li.current { border-color: var(--accent); background: #f5f8ff; }
+  .months-list .spacer { flex: 1; }
+  .ask-select { width: 100%; margin-top: 12px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
   .card-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
   .tag {
     display: inline-flex; align-items: center; gap: 5px;
@@ -382,7 +396,7 @@
   .task-editor h3 { margin: 0 0 10px; font-size: 14px; }
   .task-editor .list-edit { margin-bottom: 10px; }
   .task-editor .list-add { margin-bottom: 10px; }
-  .pill.progress { font-weight: 600; }
+  .pill.progress { font-size: 12px; font-weight: 600; padding: 1px 8px; }
   .pill.progress.done { background: #e7f6ee; border-color: #a7dcc0; color: #0f6b47; }
   .import-form { display: flex; flex-wrap: wrap; gap: 8px; }
   .import-form input { flex: 1 1 260px; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; }
@@ -441,8 +455,11 @@
   var POLL_MS = 15000;
 
   // Board data from the server: { rev, me, sheetUrl, stages: [names], accountants: [names],
-  //   restartStage, clients: [{ id, business, name, accountant, stage, monthly, recurDay,
-  //   enteredAt, createdAt, lastRecurAt, notes: [...], history: [...] }] }
+  //   restartStage, template, clients: [{ id, business, name, accountant, monthly, recurDay,
+  //   createdAt, lastRecurAt, cards: [{ id, month, stage, enteredAt, onBoard }], notes, history,
+  //   tasks, checks }] }
+  // A client has one card on the board per month being worked on (month "" for
+  // clients that aren't monthly).
   var state = null;
 
   // ======================================================================
@@ -631,10 +648,37 @@
   function doneCount(c, key) {
     return c.tasks.filter(function (t) { return c.checks[t.id + '|' + key]; }).length;
   }
+  // "2026-08" -> "Aug 2026" (or "August 2026" when long)
+  function monthLabel(key, long) {
+    if (!key) return '';
+    var i = +key.slice(5, 7) - 1;
+    return (long ? MONTH_LONG[i] : MONTH_SHORT[i]) + ' ' + key.slice(0, 4);
+  }
+  // The month a card is for; cards without one follow the calendar.
+  function cardMonth(k) {
+    if (k && k.month) return { year: +k.month.slice(0, 4), index: +k.month.slice(5, 7) - 1, key: k.month };
+    return workMonth();
+  }
+  function addMonths(key, n) {
+    var d = new Date(+key.slice(0, 4), +key.slice(5, 7) - 1 + n, 1);
+    return monthKey(d.getFullYear(), d.getMonth());
+  }
 
   function clientById(id) {
     for (var i = 0; i < state.clients.length; i++) if (state.clients[i].id === id) return state.clients[i];
     return null;
+  }
+  // Finds a card by id: { c: client, k: card }
+  function cardById(id) {
+    for (var i = 0; i < state.clients.length; i++) {
+      var c = state.clients[i];
+      for (var j = 0; j < c.cards.length; j++) if (c.cards[j].id === id) return { c: c, k: c.cards[j] };
+    }
+    return null;
+  }
+  function boardCards(c) {
+    return c.cards.filter(function (k) { return k.onBoard; })
+      .sort(function (a, b) { return a.month < b.month ? -1 : a.month > b.month ? 1 : 0; });
   }
   function accountantColor(name) {
     var i = state.accountants.indexOf(name);
@@ -658,21 +702,28 @@
     try { localStorage.setItem(SORT_KEY, JSON.stringify(sortPrefs)); } catch (e) { /* ignore */ }
   }
 
-  function sortClients(list, sort) {
-    return list.slice().sort(function (a, b) {
+  // Sorts board entries ({ c, k }) for one column.
+  function sortEntries(list, sort) {
+    return list.slice().sort(function (x, y) {
+      var a = x.c, b = y.c;
       if (sort === 'age') {
-        if (a.enteredAt !== b.enteredAt) return a.enteredAt < b.enteredAt ? -1 : 1;
+        if (x.k.enteredAt !== y.k.enteredAt) return x.k.enteredAt < y.k.enteredAt ? -1 : 1;
       } else if (sort === 'accountant') {
         if (!a.accountant !== !b.accountant) return a.accountant ? -1 : 1; // unassigned last
         var byAcc = compareText(a.accountant, b.accountant);
         if (byAcc) return byAcc;
       }
-      return compareText(displayName(a), displayName(b));
+      return compareText(displayName(a), displayName(b)) || (x.k.month < y.k.month ? -1 : x.k.month > y.k.month ? 1 : 0);
     });
   }
-  function clientsIn(stage) {
-    return sortClients(state.clients.filter(function (c) { return c.stage === stage; }), sortFor(stage));
+  function entriesIn(stage) {
+    var out = [];
+    state.clients.forEach(function (c) {
+      c.cards.forEach(function (k) { if (k.onBoard && k.stage === stage) out.push({ c: c, k: k }); });
+    });
+    return sortEntries(out, sortFor(stage));
   }
+  function countIn(stage) { return entriesIn(stage).length; }
 
   var statusEl = document.getElementById('status');
   function setStatus(text, warn) {
@@ -705,10 +756,10 @@
   }
 
   // Local (on-screen) versions of changes, shown before the server confirms.
-  function localMove(c, stage) {
-    c.stage = stage;
-    c.enteredAt = nowISO();
-    c.history.push({ stage: stage, date: c.enteredAt, by: state.me, auto: false });
+  function localMove(c, k, stage) {
+    k.stage = stage;
+    k.enteredAt = nowISO();
+    c.history.push({ stage: stage, date: k.enteredAt, by: state.me, auto: false, month: k.month });
   }
 
   // ======================================================================
@@ -727,20 +778,25 @@
            c.accountant.toLowerCase().indexOf(term) !== -1;
   }
 
-  function renderCard(c, term) {
-    var days = daysSince(c.enteredAt);
+  function renderCard(c, k, term) {
+    var days = daysSince(k.enteredAt);
     var noteCount = c.notes.length;
+    var others = boardCards(c).length > 1;
     return el('div', {
       class: 'card',
       tabindex: '0',
       role: 'button',
-      'data-id': c.id,
-      'aria-label': displayName(c) + (c.name ? ', ' + c.name : '') +
+      'data-id': k.id,
+      'aria-label': displayName(c) + (k.month ? ', ' + monthLabel(k.month, true) : '') + (c.name ? ', ' + c.name : '') +
         (c.accountant ? ', accountant ' + c.accountant : '') + '. Open details'
     },
       el('div', { class: 'card-top' },
         el('div', { class: 'card-biz' }, highlight(displayName(c), term)),
-        c.monthly ? el('span', { class: 'recur-icon', title: 'Repeats monthly on the ' + ordinal(c.recurDay), text: '↻' }) : null
+        k.month
+          ? el('span', { class: 'month-chip' + (others ? ' multi' : ''),
+              title: monthLabel(k.month, true) + (others ? ' · this client has more than one month on the board' : ''),
+              text: monthLabel(k.month) })
+          : (c.monthly ? el('span', { class: 'recur-icon', title: 'Repeats monthly on the ' + ordinal(c.recurDay), text: '↻' }) : null)
       ),
       c.name ? el('div', { class: 'card-name' }, highlight(c.name, term)) : null,
       el('div', { class: 'card-tags' },
@@ -749,23 +805,23 @@
               el('span', { class: 'dot', style: 'background:' + accountantColor(c.accountant) }),
               highlight(c.accountant, term))
           : el('span', { class: 'tag unassigned', text: 'Unassigned' }),
-        progressPill(c)
+        progressPill(c, k)
       ),
       el('div', { class: 'card-meta' },
-        el('span', { title: 'Date the client entered this stage', text: 'Since ' + fmtDate(c.enteredAt) }),
+        el('span', { title: 'Date this card entered this stage', text: 'Since ' + fmtDate(k.enteredAt) }),
         el('span', { class: 'pill', text: daysLabel(days) + (noteCount ? ' · ' + noteCount + (noteCount === 1 ? ' note' : ' notes') : '') })
       )
     );
   }
 
-  function progressPill(c) {
+  function progressPill(c, k) {
     if (!c.tasks.length) return null;
-    var wm = workMonth();
+    var wm = cardMonth(k);
     var done = doneCount(c, wm.key);
     return el('span', {
       class: 'pill progress' + (done === c.tasks.length ? ' done' : ''),
       title: MONTH_LONG[wm.index] + ' ' + wm.year + ' checklist: ' + done + ' of ' + c.tasks.length + ' done',
-      text: MONTH_SHORT[wm.index] + ' ' + (done === c.tasks.length ? '✓ ' : '') + done + '/' + c.tasks.length
+      text: (done === c.tasks.length ? '✓ ' : '') + done + '/' + c.tasks.length + ' done'
     });
   }
 
@@ -783,18 +839,19 @@
     boardEl.textContent = '';
     state.stages.forEach(function (stage) {
       var sort = sortFor(stage);
-      var all = clientsIn(stage);
-      var visible = all.filter(function (c) { return matches(c, term); });
+      var all = entriesIn(stage);
+      var visible = all.filter(function (e) { return matches(e.c, term); });
       var list = el('div', { class: 'card-list' });
       var lastGroup = null;
-      visible.forEach(function (c) {
+      visible.forEach(function (e) {
+        var c = e.c;
         if (sort === 'accountant' && c.accountant !== lastGroup) {
           lastGroup = c.accountant;
           list.appendChild(el('div', { class: 'group-label' },
             el('span', { class: 'dot', style: 'background:' + accountantColor(c.accountant) }),
             c.accountant || 'Unassigned'));
         }
-        list.appendChild(renderCard(c, term));
+        list.appendChild(renderCard(c, e.k, term));
       });
       if (!visible.length) {
         list.appendChild(el('div', { class: 'empty-col', text: term && all.length ? 'No matches' : 'Drag clients here' }));
@@ -954,14 +1011,14 @@
   }
 
   function finishDrag() {
-    var c = clientById(drag.id);
+    var found = cardById(drag.id);
     var stage = drag.target ? drag.target.getAttribute('data-stage') : null;
     suppressClick = true;
     setTimeout(function () { suppressClick = false; }, 50);
     cleanupDrag();
-    if (c && stage && c.stage !== stage) {
-      send('moveClient', { id: c.id, stage: stage }, function () { localMove(c, stage); });
-      toast(displayName(c) + ' moved to ' + stage);
+    if (found && stage && found.k.stage !== stage) {
+      send('moveCard', { id: found.k.id, stage: stage }, function () { localMove(found.c, found.k, stage); });
+      toast(displayName(found.c) + (found.k.month ? ' (' + monthLabel(found.k.month) + ')' : '') + ' moved to ' + stage);
     } else {
       render();
     }
@@ -1033,9 +1090,16 @@
     if (currentAsk) currentAsk.finish(null);
     return new Promise(function (resolve) {
       var input = opts.input ? el('input', { class: 'ask-input', type: 'text', maxLength: 100, placeholder: opts.placeholder || '' }) : null;
+      var select = null;
+      if (opts.options) {
+        select = el('select', { class: 'ask-select' });
+        opts.options.forEach(function (o) {
+          select.appendChild(el('option', { value: o.value, text: o.text, selected: o.value === opts.value }));
+        });
+      }
       var okBtn = el('button', { class: 'btn ' + (opts.danger ? 'danger-solid' : 'primary'), type: 'button', text: opts.okText || 'OK' });
       var cancelBtn = el('button', { class: 'btn', type: 'button', text: 'Cancel' });
-      var b = buildModal(opts.title, [el('p', { class: 'ask-msg', text: opts.message || '' }), input],
+      var b = buildModal(opts.title, [el('p', { class: 'ask-msg', text: opts.message || '' }), input, select],
         [el('div', { class: 'spacer' }), cancelBtn, okBtn], 'ask');
       var lastFocus = document.activeElement;
       document.body.appendChild(b.overlay);
@@ -1051,13 +1115,15 @@
         if (input) {
           if (!input.value.trim()) { input.focus(); return; }
           finish(input.value.trim());
+        } else if (select) {
+          finish(select.value);
         } else finish(true);
       }
       okBtn.addEventListener('click', ok);
       cancelBtn.addEventListener('click', function () { finish(null); });
       b.closeBtn.addEventListener('click', function () { finish(null); });
       if (input) input.addEventListener('keydown', function (e) { if (e.key === 'Enter') ok(); });
-      setTimeout(function () { (input || okBtn).focus(); }, 0);
+      setTimeout(function () { (input || select || okBtn).focus(); }, 0);
     });
   }
 
@@ -1132,7 +1198,7 @@
     function refresh() {
       daySel.disabled = !box.checked;
       hint.textContent = box.checked
-        ? 'On the ' + ordinal(+daySel.value) + ' of every month, this client automatically moves back to "' + restartStage() + '".'
+        ? 'On the ' + ordinal(+daySel.value) + ' of every month, a card for the month just ended is added to "' + restartStage() + '" (e.g. on Sept ' + ordinal(+daySel.value) + ', one for August). Earlier months stay where they are until finished.'
         : 'Turn this on for clients whose books you do every month.';
     }
     box.addEventListener('change', function () { refresh(); if (onChange) onChange({ monthly: box.checked }); });
@@ -1160,12 +1226,32 @@
     );
   }
 
+  // A drop-down of months around now. `skip` leaves out months already on the board.
+  function monthSelect(selected, allowNone, skip) {
+    var sel = el('select');
+    if (allowNone) sel.appendChild(el('option', { value: '', text: 'No particular month' }));
+    monthChoices(skip).forEach(function (o) {
+      sel.appendChild(el('option', { value: o.value, text: o.text, selected: o.value === selected }));
+    });
+    return sel;
+  }
+  function monthChoices(skip) {
+    var wm = workMonth().key, out = [];
+    for (var n = -6; n <= 2; n++) {
+      var key = addMonths(wm, n);
+      if (skip && skip.indexOf(key) !== -1) continue;
+      out.push({ value: key, text: monthLabel(key, true) + (key === wm ? ' (last month)' : '') });
+    }
+    return out;
+  }
+
   // ---------- Add client ----------
   function openAddClient() {
     var business = el('input', { type: 'text', maxLength: 200, placeholder: 'e.g. Smith Consulting LLC', required: true });
     var name = el('input', { type: 'text', maxLength: 200, placeholder: 'e.g. Jane Smith' });
     var accountant = accountantSelect('');
     var stage = stageSelect(restartStage());
+    var monthSel = monthSelect(workMonth().key, true);
     var recur = recurControls(true, 1);
     var notes = el('textarea', { placeholder: 'Anything worth remembering about this client…' });
     var createBtn = el('button', { class: 'btn primary', type: 'button', text: 'Add Client' });
@@ -1190,6 +1276,7 @@
         name: name.value.trim(),
         accountant: accountant.value === '__new' ? '' : accountant.value,
         stage: stage.value,
+        month: monthSel.value,
         monthly: recur.box.checked,
         recurDay: +recur.daySel.value,
         note: notes.value
@@ -1218,6 +1305,7 @@
           field('Accountant', accountant, 'f-acc'),
           field('Starting Stage', stage, 'f-stage')
         ),
+        field('Month to start with', monthSel, 'f-month'),
         recur.node,
         field('Notes', notes, 'f-notes'),
         el('p', { class: 'hint', text: 'Notes are saved with today\'s date and your name. You can add more dated notes later.' })
@@ -1231,10 +1319,22 @@
   }
 
   // ---------- View / edit client ----------
-  function openClient(id) {
-    var start = clientById(id);
-    if (!start) return;
+  // Opens a client from one of its month cards.
+  function openClient(cardId) {
+    var found = cardById(cardId);
+    if (!found) return;
+    var start = found.c, id = start.id;
     function cur() { return clientById(id); }
+    function curCard() {
+      var c = cur();
+      if (!c) return null;
+      for (var i = 0; i < c.cards.length; i++) if (c.cards[i].id === cardId) return c.cards[i];
+      return null;
+    }
+    function titleText(biz) {
+      var k = curCard();
+      return biz + (k && k.month ? ' · ' + monthLabel(k.month, true) : '');
+    }
 
     var business = el('input', { type: 'text', maxLength: 200, value: start.business, required: true });
     var name = el('input', { type: 'text', maxLength: 200, value: start.name });
@@ -1242,7 +1342,7 @@
     var accountant = accountantSelect(start.accountant, function (v) {
       send('updateClient', { id: id, accountant: v }, function () { cur().accountant = v; });
     });
-    var stage = stageSelect(start.stage);
+    var stage = stageSelect(found.k.stage);
     var recur = recurControls(start.monthly, start.recurDay, function (change) {
       var args = { id: id };
       Object.keys(change).forEach(function (k) { args[k] = change[k]; });
@@ -1280,7 +1380,7 @@
       var v = business.value.trim();
       businessField.classList.toggle('invalid', !v);
       if (!v) { delete edits.business; return; } // keep the saved name until a new one is typed
-      if (currentModal) currentModal.titleEl.textContent = v;
+      if (currentModal) currentModal.titleEl.textContent = titleText(v);
       queueEdit('business', v);
     });
     name.addEventListener('input', function () { queueEdit('name', name.value.trim()); });
@@ -1288,17 +1388,54 @@
 
     stage.addEventListener('change', function () {
       var v = stage.value;
-      if (v === cur().stage) return;
-      send('moveClient', { id: id, stage: v }, function () { localMove(cur(), v); });
+      if (v === curCard().stage) return;
+      send('moveCard', { id: cardId, stage: v }, function () { localMove(cur(), curCard(), v); });
       toast('Moved to ' + v);
     });
 
     function refreshSince() {
+      var c = cur(), k = curCard();
+      var d = daysSince(k.enteredAt);
+      sinceText.textContent = (k.month ? monthLabel(k.month, true) + ' has been' : 'In this stage') + ' in "' + k.stage +
+        '" since ' + fmtDate(k.enteredAt) + ' (' + (d === 0 ? 'today' : daysLabel(d)) + '). Client added ' +
+        fmtDate(c.createdAt) + '.' + (c.updatedBy ? ' Last changed by ' + shortName(c.updatedBy) + '.' : '');
+    }
+
+    // ---------- This client's months on the board ----------
+    var monthsList = el('ul', { class: 'months-list' });
+    function refreshMonths() {
       var c = cur();
-      var d = daysSince(c.enteredAt);
-      sinceText.textContent = 'In this stage since ' + fmtDate(c.enteredAt) +
-        ' (' + (d === 0 ? 'today' : daysLabel(d)) + '). Client added ' + fmtDate(c.createdAt) + '.' +
-        (c.updatedBy ? ' Last changed by ' + shortName(c.updatedBy) + '.' : '');
+      monthsList.textContent = '';
+      boardCards(c).forEach(function (k) {
+        var isThis = k.id === cardId;
+        monthsList.appendChild(el('li', { class: isThis ? 'current' : '' },
+          el('strong', { text: k.month ? monthLabel(k.month, true) : 'No particular month' }),
+          el('span', { class: 'muted', text: k.stage }),
+          el('span', { class: 'spacer' }),
+          isThis ? el('span', { class: 'muted', text: 'Open now' })
+            : el('button', { class: 'btn small', type: 'button', text: 'Open', onclick: function () {
+                closeModal();
+                openClient(k.id);
+              } })
+        ));
+      });
+    }
+    function addMonth() {
+      var c = cur();
+      var onBoard = boardCards(c).map(function (k) { return k.month; });
+      var choices = monthChoices(onBoard);
+      if (!choices.length) { toast('All nearby months are already on the board.'); return; }
+      var latest = onBoard.filter(Boolean).sort().pop();
+      var suggested = latest ? addMonths(latest, 1) : workMonth().key;
+      ask({ title: 'Add a month', okText: 'Add to Board', options: choices,
+        value: choices.some(function (o) { return o.value === suggested; }) ? suggested : choices[choices.length - 1].value,
+        message: 'Put another month for ' + displayName(c) + ' on the board. It starts in "' + restartStage() + '".' })
+        .then(function (month) {
+          if (!month) return;
+          send('addCard', { clientId: id, month: month }).then(function () {
+            toast(monthLabel(month, true) + ' added to the board');
+          });
+        });
     }
 
     function refreshNotes() {
@@ -1339,7 +1476,7 @@
       }
       items.forEach(function (h) {
         historyList.appendChild(el('li', {},
-          el('span', { text: h.stage + (h.auto ? ' (monthly restart)' : '') }),
+          el('span', { text: (h.month ? monthLabel(h.month) + ': ' : '') + h.stage + (h.auto ? ' (added automatically)' : '') }),
           el('span', { class: 'muted', text: fmtDateTime(h.date) + (h.by && !h.auto ? ' · ' + shortName(h.by) : '') })
         ));
       });
@@ -1364,7 +1501,7 @@
 
     // ---------- Monthly checklist ----------
     var thisYear = new Date().getFullYear();
-    var year = workMonth().year;
+    var year = cardMonth(found.k).year;
     var editingTasks = false;
     var yearLabel = el('span', { class: 'year' });
     var prevYearBtn = el('button', { class: 'btn icon small', type: 'button', text: '‹', 'aria-label': 'Previous year',
@@ -1425,7 +1562,7 @@
         }, showError);
         return;
       }
-      var wm = workMonth();
+      var wm = cardMonth(curCard());
       var head = el('tr', {}, el('th', { class: 'task', scope: 'col', text: 'Item' }));
       MONTH_SHORT.forEach(function (label, mi) {
         var key = monthKey(year, mi);
@@ -1434,7 +1571,7 @@
           scope: 'col',
           class: (key === wm.key ? 'work' : '') + (done === c.tasks.length ? ' full' : ''),
           title: MONTH_LONG[mi] + ' ' + year + ': ' + done + ' of ' + c.tasks.length + ' done' +
-            (key === wm.key ? ' (the month being worked on now)' : '')
+            (key === wm.key ? ' (this card\'s month)' : '')
         }, label, el('span', { class: 'mcount', text: done + '/' + c.tasks.length })));
       });
       var body = el('tbody');
@@ -1564,21 +1701,25 @@
       field('Stage', stage, 'e-stage')
     ));
     detailsPane.appendChild(sinceText);
+    detailsPane.appendChild(el('div', { class: 'section-title', text: 'Months on the board' }));
+    detailsPane.appendChild(monthsList);
+    detailsPane.appendChild(el('div', { style: 'margin:-6px 0 16px' },
+      el('button', { class: 'btn small', type: 'button', text: '+ Add a month', onclick: addMonth })));
     detailsPane.appendChild(recur.node);
 
     checklistPane.appendChild(el('div', { class: 'checklist-bar' },
       prevYearBtn, yearLabel, nextYearBtn,
-      el('span', { class: 'muted', text: 'The highlighted month is the one being worked on now.' }),
+      el('span', { class: 'muted', text: found.k.month ? 'Highlighted: ' + monthLabel(found.k.month, true) + ', the month of the card you opened.' : 'Highlighted: last month.' }),
       el('span', { class: 'spacer' }),
       editTasksBtn
     ));
     checklistPane.appendChild(tableWrap);
     checklistPane.appendChild(taskEditor);
 
-    refreshSince(); refreshNotes(); refreshHistory(); renderChecklist();
+    refreshSince(); refreshMonths(); refreshNotes(); refreshHistory(); renderChecklist();
 
     openModal({
-      title: displayName(start),
+      title: titleText(displayName(start)),
       wide: true,
       body: [
         el('div', { class: 'tabs', role: 'tablist' }, tabButtons.details, tabButtons.checklist),
@@ -1607,6 +1748,17 @@
             toast(label + ' deleted');
           });
         } }),
+        el('button', { class: 'btn', type: 'button', text: 'Remove this month from board', onclick: function () {
+          var k = curCard();
+          var label = k.month ? monthLabel(k.month, true) : 'This card';
+          ask({ title: 'Remove from board?', okText: 'Remove', danger: true,
+            message: 'Take ' + label + ' for ' + displayName(cur()) + ' off the board?\n\nThe client, checklist and notes stay. ' +
+              'You can put it back with "+ Add a month".' }).then(function (ok) {
+            if (!ok) return;
+            closeModal();
+            send('removeCard', { id: cardId }, function () { var kk = curCard(); if (kk) kk.onBoard = false; });
+          });
+        } }),
         el('div', { class: 'spacer' }),
         el('span', { class: 'muted', text: 'Changes save automatically' }),
         el('button', { class: 'btn primary', type: 'button', text: 'Done', onclick: function () { closeModal(); } })
@@ -1618,21 +1770,26 @@
         if (saveNote()) toast('Your unsaved note was added');
       },
       refresh: function () {
-        var c = cur();
+        var c = cur(), k = curCard();
         if (!c) {
           closeModal(true);
           toast('This client was deleted by someone else.', true);
           return;
         }
+        if (!k || !k.onBoard) {
+          closeModal(true);
+          toast('This month was taken off the board.', true);
+          return;
+        }
         if (document.activeElement !== business && !('business' in edits)) {
           business.value = c.business;
-          if (currentModal) currentModal.titleEl.textContent = c.business;
+          if (currentModal) currentModal.titleEl.textContent = titleText(c.business);
         }
         if (document.activeElement !== name && !('name' in edits)) name.value = c.name;
-        if (document.activeElement !== stage) fillStageSelect(stage, c.stage);
+        if (document.activeElement !== stage) fillStageSelect(stage, k.stage);
         accountant.refill();
         recur.set(c.monthly, c.recurDay);
-        refreshSince(); refreshNotes(); refreshHistory(); renderChecklist();
+        refreshSince(); refreshMonths(); refreshNotes(); refreshHistory(); renderChecklist();
       }
     });
     var savedTab = 'details';
@@ -1813,14 +1970,14 @@
       if (list.contains(document.activeElement)) return;
       list.textContent = '';
       state.stages.forEach(function (s, i) {
-        var count = state.clients.filter(function (c) { return c.stage === s; }).length;
+        var count = countIn(s);
         var input = el('input', { type: 'text', value: s, maxLength: 100, 'aria-label': 'Stage name' });
         input.addEventListener('change', function () {
           var to = input.value.trim();
           if (!to || to === s) { input.value = s; return; }
           send('renameStage', { from: s, to: to }, function () {
             state.stages = state.stages.map(function (x) { return x === s ? to : x; });
-            state.clients.forEach(function (c) { if (c.stage === s) c.stage = to; });
+            state.clients.forEach(function (c) { c.cards.forEach(function (k) { if (k.stage === s) k.stage = to; }); });
             if (state.restartStage === s) state.restartStage = to;
             if (sortPrefs[s]) setSort(to, sortPrefs[s]);
           });
@@ -1851,14 +2008,14 @@
     function removeStage(s) {
       var i = state.stages.indexOf(s);
       var fallback = state.stages[i > 0 ? i - 1 : 1];
-      var count = state.clients.filter(function (c) { return c.stage === s; }).length;
+      var count = countIn(s);
       var msg = 'Remove the stage "' + s + '"?' +
-        (count ? '\n\nIts ' + count + (count === 1 ? ' client' : ' clients') + ' will be moved to "' + fallback + '".' : '') +
+        (count ? '\n\nIts ' + count + (count === 1 ? ' card' : ' cards') + ' will be moved to "' + fallback + '".' : '') +
         (s === restartStage() ? '\n\nMonthly clients will restart in "' + fallback + '" instead.' : '');
       ask({ title: 'Remove stage?', message: msg, okText: 'Remove', danger: true }).then(function (ok) {
         if (!ok) return;
         send('removeStage', { name: s }, function () {
-          state.clients.forEach(function (c) { if (c.stage === s) localMove(c, fallback); });
+          state.clients.forEach(function (c) { c.cards.forEach(function (k) { if (k.stage === s) localMove(c, k, fallback); }); });
           state.stages = state.stages.filter(function (x) { return x !== s; });
           if (state.restartStage === s) state.restartStage = fallback;
         });
@@ -1921,7 +2078,7 @@
     }, showError);
   }
 
-  var CSV_HEADERS = ['Business Name', 'Client Name', 'Accountant', 'Stage', 'Monthly', 'Monthly Day',
+  var CSV_HEADERS = ['Business Name', 'Client Name', 'Accountant', 'Month', 'Stage', 'Monthly', 'Monthly Day',
     'Entered Stage', 'Client Added', 'Notes'];
 
   function csvCell(v) {
@@ -1933,12 +2090,16 @@
 
   function exportCSV() {
     var rows = [CSV_HEADERS];
+    // One row per card on the board; a client's notes go on its first row only.
+    var notesDone = {};
     state.stages.forEach(function (s) {
-      clientsIn(s).forEach(function (c) {
-        var notes = c.notes.slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; })
+      entriesIn(s).forEach(function (e) {
+        var c = e.c, k = e.k;
+        var notes = notesDone[c.id] ? '' : c.notes.slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; })
           .map(function (n) { return '[' + isoDayTime(n.date) + '] ' + n.text; }).join('\n');
-        rows.push([c.business, c.name, c.accountant, s, c.monthly ? 'Yes' : 'No', c.recurDay,
-          isoDay(c.enteredAt), isoDay(c.createdAt), notes]);
+        notesDone[c.id] = true;
+        rows.push([c.business, c.name, c.accountant, k.month, s, c.monthly ? 'Yes' : 'No', c.recurDay,
+          isoDay(k.enteredAt), isoDay(c.createdAt), notes]);
       });
     });
     var text = '﻿' + rows.map(function (r) { return r.map(csvCell).join(','); }).join('\r\n');
@@ -1988,7 +2149,7 @@
     var header = rows[0].map(function (h) { return h.trim().toLowerCase(); });
     function col(name) { return header.indexOf(name.toLowerCase()); }
     var iBiz = col('Business Name'), iName = col('Client Name'), iAcc = col('Accountant'), iStage = col('Stage'),
-        iMonthly = col('Monthly'), iDay = col('Monthly Day'),
+        iMonthly = col('Monthly'), iDay = col('Monthly Day'), iMonth = col('Month'),
         iEntered = col('Entered Stage'), iAdded = col('Client Added'), iNotes = col('Notes');
     if (iBiz === -1 && iName === -1) throw new Error('Could not find a "Business Name" column.');
 
@@ -1998,22 +2159,33 @@
       list.push(n);
       return n;
     }
-    var clients = rows.slice(1).map(function (r) {
+    // Rows for the same business become one client with several month cards.
+    var clients = [], byName = {};
+    rows.slice(1).forEach(function (r) {
       function get(i) { return i === -1 ? '' : str(r[i]).trim().replace(/^'(?=[=+\-@])/, ''); }
+      var business = get(iBiz) || get(iName);
+      if (!business) return;
       var entered = parseLocalDate(get(iEntered)) || nowISO();
-      return {
-        business: get(iBiz) || get(iName),
-        name: get(iBiz) ? get(iName) : '',
-        accountant: get(iAcc) ? addName(accountants, get(iAcc)) : '',
-        stage: get(iStage) ? addName(stages, get(iStage)) : stages[0],
-        monthly: /^(y|yes|true|1|x)$/i.test(get(iMonthly)),
-        recurDay: clampDay(get(iDay)),
-        enteredAt: entered,
-        createdAt: parseLocalDate(get(iAdded)) || entered,
-        notes: iNotes === -1 ? [] : parseNotes(r[iNotes]),
-        history: [{ stage: get(iStage) || stages[0], date: entered }]
-      };
-    }).filter(function (c) { return c.business; });
+      var month = (/^\d{4}-\d{1,2}$/.test(get(iMonth)) ? get(iMonth) : '');
+      if (month) month = month.slice(0, 5) + pad(+month.slice(5));
+      var stage = get(iStage) ? addName(stages, get(iStage)) : stages[0];
+      var c = byName[business.toLowerCase()];
+      if (!c) {
+        c = byName[business.toLowerCase()] = {
+          business: business,
+          name: get(iBiz) ? get(iName) : '',
+          accountant: get(iAcc) ? addName(accountants, get(iAcc)) : '',
+          monthly: /^(y|yes|true|1|x)$/i.test(get(iMonthly)),
+          recurDay: clampDay(get(iDay)),
+          createdAt: parseLocalDate(get(iAdded)) || entered,
+          notes: [], history: [], cards: []
+        };
+        clients.push(c);
+      }
+      if (iNotes !== -1) c.notes = c.notes.concat(parseNotes(r[iNotes]));
+      c.cards.push({ month: month, stage: stage, enteredAt: entered, onBoard: true });
+      c.history.push({ stage: stage, date: entered, month: month });
+    });
     return { stages: stages, accountants: accountants, restartStage: state.restartStage, clients: clients };
   }
 
