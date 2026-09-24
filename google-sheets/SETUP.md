@@ -80,6 +80,13 @@ To remove someone, remove them from the Sheet's Share list.
 
 ---
 
+## Clients
+
+Every client is a permanent record, whether or not it has a card on the board. Its details, checklist items, checkmarks, notes and history stay with it from month to month and year to year.
+
+- **Finding a client:** click **Clients** at the top to see every client, with search. It shows which months each client has on the board, or "Not on the board". Click **Open** to see the client.
+- **Putting a client back on the board:** open it from **Clients** and click **+ Add a month**. Don't add it again with **+ Add Client**, because that would start a new, empty client. The tracker checks for this: if the business name already exists, it offers to open the existing client instead.
+
 ## One card per month
 
 For monthly clients, each month has its own card on the board, labeled with the month (for example **Aug 2026**). That way a client can be behind on one month and starting the next at the same time.
@@ -115,7 +122,7 @@ What the import does:
 - **Sets the Checklist Template** from any tab with "template" in its name.
 - **Skips tabs** that aren't checklists.
 - **Is safe to run twice:** it only adds what's missing.
-- **Replaces untouched checklists:** a client that has no checkmarks yet takes the workbook's list exactly as it is.
+- **Replaces untouched checklists:** a client whose list is still exactly the Checklist Template, with nothing ticked, takes the workbook's list as it is. A list someone has customized is kept, and the workbook's items are added to it.
 
 ## Updating from an earlier version
 

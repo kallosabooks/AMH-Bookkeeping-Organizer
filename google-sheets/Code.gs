@@ -195,9 +195,16 @@ function exportAll() {
 var OPS = {
   addClient: function (m, a, me) {
     var now = nowIso_();
+    var business = required_(a.business, 'Business Name');
+    // A client is kept for good (with its own checklist items), so never make a second copy.
+    var same = findClientByName_(m, business);
+    if (same) {
+      throw new Error(same.business + ' is already a client. Open it from the Clients list and use ' +
+        '"+ Add a month" to put it back on the board.');
+    }
     var c = {
       id: newId_(),
-      business: required_(a.business, 'Business Name'),
+      business: business,
       name: clean_(a.name),
       accountant: accountantName_(m, a.accountant),
       monthly: !!a.monthly,
@@ -218,6 +225,8 @@ var OPS = {
     var c = client_(m, a.id);
     if ('business' in a) {
       var b = required_(a.business, 'Business Name');
+      var clash = findClientByName_(m, b);
+      if (clash && clash !== c) throw new Error('There is already a client called ' + clash.business + '.');
       if (b !== c.business) {
         c.business = b;
         m.notes.forEach(function (n) { if (n.clientId === c.id) n.business = b; });
@@ -534,6 +543,9 @@ var OPS = {
     if (src.getId() === m.ss.getId()) throw new Error('That link is this tracker\'s own Sheet. Paste the link to your old checklist workbook.');
 
     var summary = { tabs: 0, created: [], matched: [], checks: 0, tasks: 0, notes: 0, template: 0, skipped: [] };
+    // The workbook's template tab may replace the template partway through, so
+    // "untouched" is judged against the template as it was before the import.
+    var templateBefore = m.template.map(function (n) { return n.toLowerCase(); }).join('|');
     src.getSheets().forEach(function (sh) {
       var parsed = parseChecklistTab_(sh.getDataRange().getValues());
       if (!parsed) { summary.skipped.push(sh.getName()); return; }
@@ -547,10 +559,7 @@ var OPS = {
       }
 
       var business = parsed.title || clean_(sh.getName());
-      var c = null;
-      for (var i = 0; i < m.clients.length; i++) {
-        if (m.clients[i].business.toLowerCase() === business.toLowerCase()) { c = m.clients[i]; break; }
-      }
+      var c = findClientByName_(m, business);
       if (c) {
         summary.matched.push(c.business);
       } else {
@@ -563,10 +572,13 @@ var OPS = {
         summary.created.push(business);
       }
 
-      // A client nobody has ticked anything for yet takes the workbook's list
-      // as-is (dropping template items it doesn't use); otherwise merge.
+      // A client whose list is still exactly the template and has nothing
+      // ticked takes the workbook's list as-is (dropping template items it
+      // doesn't use). Anything someone has customized or ticked is merged.
       var hasChecks = m.checks.some(function (k) { return k.clientId === c.id; });
-      if (!hasChecks) {
+      var current = clientTaskNames_(m, c).map(function (n) { return n.toLowerCase(); }).join('|');
+      var untouched = current === templateBefore;
+      if (!hasChecks && (untouched || !current)) {
         m.tasks = m.tasks.filter(function (t) { return t.clientId !== c.id; });
         m.dirty.tasks = true;
       }
@@ -763,6 +775,12 @@ function addTaskRow_(m, c, name) {
   m.tasks.push(t);
   m.dirty.tasks = true;
   return t;
+}
+
+function findClientByName_(m, business) {
+  var key = clean_(business).toLowerCase();
+  for (var i = 0; i < m.clients.length; i++) if (m.clients[i].business.toLowerCase() === key) return m.clients[i];
+  return null;
 }
 
 function clientTaskNames_(m, c) {

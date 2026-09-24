@@ -200,6 +200,13 @@
   }
   .months-list li.current { border-color: var(--accent); background: #f5f8ff; }
   .months-list .spacer { flex: 1; }
+  .clients-search { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 10px; }
+  .clients-search:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus); }
+  .client-list { border: 1px solid var(--border); border-radius: 8px; }
+  .client-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 12px; border-bottom: 1px solid #eef1f5; }
+  .client-row:last-child { border-bottom: 0; }
+  .client-main { flex: 1 1 260px; min-width: 0; }
+  .client-months { display: flex; flex-wrap: wrap; gap: 6px; flex: 0 1 auto; }
   .ask-select { width: 100%; margin-top: 12px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
   .card-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
   .tag {
@@ -440,6 +447,7 @@
     </div>
     <div class="actions">
       <button class="btn primary" id="addClientBtn" type="button" disabled>+ Add Client</button>
+      <button class="btn" id="clientsBtn" type="button" disabled>Clients</button>
       <button class="btn" id="accountantsBtn" type="button" disabled>Accountants</button>
       <button class="btn" id="templateBtn" type="button" disabled>Checklist Template</button>
       <button class="btn" id="stagesBtn" type="button" disabled>Edit Stages</button>
@@ -520,7 +528,7 @@
     state = s;
     setStatus(connectedText());
     if (first) {
-      ['addClientBtn', 'accountantsBtn', 'templateBtn', 'stagesBtn', 'backupBtn'].forEach(function (id) {
+      ['addClientBtn', 'clientsBtn', 'accountantsBtn', 'templateBtn', 'stagesBtn', 'backupBtn'].forEach(function (id) {
         document.getElementById(id).disabled = false;
       });
     }
@@ -683,6 +691,15 @@
       for (var j = 0; j < c.cards.length; j++) if (c.cards[j].id === id) return { c: c, k: c.cards[j] };
     }
     return null;
+  }
+  function findClientByName(business) {
+    var key = str(business).trim().toLowerCase();
+    return state.clients.filter(function (c) { return c.business.toLowerCase() === key; })[0] || null;
+  }
+  // Opens a client at its most recent month on the board, or on its own if it has none.
+  function openExisting(c) {
+    var cards = boardCards(c);
+    openClient(cards.length ? cards[cards.length - 1].id : null, c.id);
   }
   function boardCards(c) {
     return c.cards.filter(function (k) { return k.onBoard; })
@@ -1276,9 +1293,21 @@
         business.focus();
         return;
       }
+      var biz = business.value.trim();
+      var existing = findClientByName(biz);
+      if (existing) {
+        ask({ title: 'Client already exists', okText: 'Open ' + existing.business,
+          message: existing.business + ' is already a client, with its own checklist items and notes.\n\n' +
+            'Open it instead? From there, "+ Add a month" puts it back on the board.' })
+          .then(function (ok) {
+            if (!ok) return;
+            closeModal(true);
+            openExisting(existing);
+          });
+        return;
+      }
       createBtn.disabled = true;
       createBtn.textContent = 'Adding…';
-      var biz = business.value.trim();
       send('addClient', {
         business: biz,
         name: name.value.trim(),
@@ -1327,15 +1356,21 @@
   }
 
   // ---------- View / edit client ----------
-  // Opens a client from one of its month cards.
-  function openClient(cardId) {
-    var found = cardById(cardId);
-    if (!found) return;
+  // Opens a client from one of its month cards, or (with cardId null) a client
+  // that has no month on the board right now.
+  function openClient(cardId, clientId) {
+    var found = cardId ? cardById(cardId) : null;
+    if (!found) {
+      var only = clientId && clientById(clientId);
+      if (!only) return;
+      found = { c: only, k: null };
+      cardId = null;
+    }
     var start = found.c, id = start.id;
     function cur() { return clientById(id); }
     function curCard() {
       var c = cur();
-      if (!c) return null;
+      if (!c || !cardId) return null;
       for (var i = 0; i < c.cards.length; i++) if (c.cards[i].id === cardId) return c.cards[i];
       return null;
     }
@@ -1350,7 +1385,7 @@
     var accountant = accountantSelect(start.accountant, function (v) {
       send('updateClient', { id: id, accountant: v }, function () { cur().accountant = v; });
     });
-    var stage = stageSelect(found.k.stage);
+    var stage = stageSelect(found.k ? found.k.stage : restartStage());
     var recur = recurControls(start.monthly, start.recurDay, function (change) {
       var args = { id: id };
       Object.keys(change).forEach(function (k) { args[k] = change[k]; });
@@ -1403,6 +1438,11 @@
 
     function refreshSince() {
       var c = cur(), k = curCard();
+      if (!k) {
+        sinceText.textContent = 'Client added ' + fmtDate(c.createdAt) + '.' +
+          (c.updatedBy ? ' Last changed by ' + shortName(c.updatedBy) + '.' : '');
+        return;
+      }
       var d = daysSince(k.enteredAt);
       sinceText.textContent = (k.month ? monthLabel(k.month, true) + ' has been' : 'In this stage') + ' in "' + k.stage +
         '" since ' + fmtDate(k.enteredAt) + ' (' + (d === 0 ? 'today' : daysLabel(d)) + '). Client added ' +
@@ -1414,6 +1454,9 @@
     function refreshMonths() {
       var c = cur();
       monthsList.textContent = '';
+      if (!boardCards(c).length) {
+        monthsList.appendChild(el('li', { class: 'muted', text: 'Not on the board right now. Use "+ Add a month" to put a month on the board.' }));
+      }
       boardCards(c).forEach(function (k) {
         var isThis = k.id === cardId;
         monthsList.appendChild(el('li', { class: isThis ? 'current' : '' },
@@ -1442,6 +1485,11 @@
           if (!month) return;
           send('addCard', { clientId: id, month: month }).then(function () {
             toast(monthLabel(month, true) + ' added to the board');
+            // Opened from the Clients list with no month: switch to the new card.
+            if (!cardId && currentModal && cur()) {
+              var added = cur().cards.filter(function (k) { return k.month === month && k.onBoard; })[0];
+              if (added) { closeModal(); openClient(added.id); }
+            }
           });
         });
     }
@@ -1752,7 +1800,7 @@
     ));
     detailsPane.appendChild(el('div', { class: 'row' },
       field('Accountant', accountant, 'e-acc'),
-      field('Stage', stage, 'e-stage')
+      cardId ? field('Stage' + (found.k.month ? ' for ' + monthLabel(found.k.month, true) : ''), stage, 'e-stage') : el('div')
     ));
     detailsPane.appendChild(sinceText);
     detailsPane.appendChild(el('div', { class: 'section-title', text: 'Months on the board' }));
@@ -1803,7 +1851,7 @@
             toast(label + ' deleted');
           });
         } }),
-        el('button', { class: 'btn', type: 'button', text: 'Remove this month from board', onclick: function () {
+        !cardId ? null : el('button', { class: 'btn', type: 'button', text: 'Remove this month from board', onclick: function () {
           var k = curCard();
           var label = k.month ? monthLabel(k.month, true) : 'This card';
           ask({ title: 'Remove from board?', okText: 'Remove', danger: true,
@@ -1831,7 +1879,7 @@
           toast('This client was deleted by someone else.', true);
           return;
         }
-        if (!k || !k.onBoard) {
+        if (cardId && (!k || !k.onBoard)) {
           closeModal(true);
           toast('This month was taken off the board.', true);
           return;
@@ -1841,7 +1889,7 @@
           if (currentModal) currentModal.titleEl.textContent = titleText(c.business);
         }
         if (document.activeElement !== name && !('name' in edits)) name.value = c.name;
-        if (document.activeElement !== stage) fillStageSelect(stage, k.stage);
+        if (k && document.activeElement !== stage) fillStageSelect(stage, k.stage);
         accountant.refill();
         recur.set(c.monthly, c.recurDay);
         refreshSince(); refreshMonths(); refreshNotes(); refreshHistory(); renderChecklist();
@@ -1850,6 +1898,59 @@
     var savedTab = 'details';
     try { savedTab = localStorage.getItem(TAB_KEY) === 'checklist' ? 'checklist' : 'details'; } catch (e) { /* ignore */ }
     showTab(savedTab);
+  }
+
+  // ---------- Clients list ----------
+  function openClients() {
+    var search = el('input', { type: 'search', class: 'clients-search', placeholder: 'Search business, client, or accountant…', 'aria-label': 'Search clients' });
+    var countEl = el('p', { class: 'muted', style: 'margin:0 0 10px' });
+    var list = el('div', { class: 'client-list' });
+
+    function refresh() {
+      var term = search.value.trim().toLowerCase();
+      var all = state.clients.slice().sort(function (a, b) { return compareText(displayName(a), displayName(b)); });
+      var shown = all.filter(function (c) { return matches(c, term); });
+      countEl.textContent = (term ? shown.length + ' of ' : '') + all.length + (all.length === 1 ? ' client' : ' clients') +
+        '. Each client keeps its own checklist items, notes and history, whether or not it is on the board.';
+      list.textContent = '';
+      if (!shown.length) list.appendChild(el('div', { class: 'checklist-empty', text: all.length ? 'No matches.' : 'No clients yet.' }));
+      shown.forEach(function (c) {
+        var cards = boardCards(c);
+        list.appendChild(el('div', { class: 'client-row' },
+          el('div', { class: 'client-main' },
+            el('div', { class: 'card-biz' }, highlight(displayName(c), term)),
+            el('div', { class: 'muted' },
+              [c.name, c.accountant ? 'Accountant: ' + c.accountant : 'Unassigned',
+               c.tasks.length + ' checklist item' + (c.tasks.length === 1 ? '' : 's')].filter(Boolean).join(' · '))
+          ),
+          el('div', { class: 'client-months' },
+            cards.length
+              ? cards.map(function (k) {
+                  return el('span', { class: 'tag', text: (k.month ? monthLabel(k.month) + ' · ' : '') + k.stage });
+                })
+              : el('span', { class: 'muted', text: 'Not on the board' })
+          ),
+          el('button', { class: 'btn small', type: 'button', text: 'Open', onclick: function () {
+            closeModal();
+            openExisting(c);
+          } })
+        ));
+      });
+    }
+    search.addEventListener('input', refresh);
+    refresh();
+    openModal({
+      title: 'Clients',
+      wide: true,
+      focus: search,
+      refresh: refresh,
+      body: [search, countEl, list],
+      footer: [
+        el('div', { class: 'spacer' }),
+        el('button', { class: 'btn', type: 'button', text: '+ Add Client', onclick: function () { closeModal(); openAddClient(); } }),
+        el('button', { class: 'btn primary', type: 'button', text: 'Done', onclick: function () { closeModal(); } })
+      ]
+    });
   }
 
   // ---------- Accountants ----------
@@ -2301,7 +2402,9 @@
         okText: 'Replace Everything',
         message: 'Import ' + n + (n === 1 ? ' client' : ' clients') + ' from "' + file.name + '"?\n\n' +
           'This REPLACES all clients' + (isJSON ? ', stages and accountants' : '') +
-          ' for everyone on your team. Download a backup first if you are not sure.'
+          ' for everyone on your team. Download a backup first if you are not sure.' +
+          (isJSON ? '' : '\n\nCSV files don\'t include checklist items or checkmarks, so clients will start from the ' +
+            'Checklist Template again. To keep them, restore from a JSON backup instead.')
       }).then(function (ok) {
         if (!ok) return;
         closeModal(true);
@@ -2399,6 +2502,7 @@
   // Start
   // ======================================================================
   document.getElementById('addClientBtn').addEventListener('click', openAddClient);
+  document.getElementById('clientsBtn').addEventListener('click', openClients);
   document.getElementById('accountantsBtn').addEventListener('click', openAccountants);
   document.getElementById('templateBtn').addEventListener('click', openTemplate);
   document.getElementById('stagesBtn').addEventListener('click', openStages);
